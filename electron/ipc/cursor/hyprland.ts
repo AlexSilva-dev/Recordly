@@ -263,7 +263,9 @@ export function startEvdevButtonCapture(handlers: {
 	// Only Hyprland/Wayland sessions need raw evdev buttons: on X11 the uiohook
 	// already captures clicks, and double-counting them corrupts the telemetry.
 	if (process.platform !== "linux" || !getHyprlandRequestSocketPath(process.env)) {
-		return () => {};
+		return () => {
+			console.log("[REC-DEBUG] evdev capture skipped (no Hyprland session)");
+		};
 	}
 	const stoppers = listMouseEventDevices().map((devicePath) => {
 		let fd: number | null = null;
@@ -277,7 +279,9 @@ export function startEvdevButtonCapture(handlers: {
 			if (fd !== null) {
 				const fdToClose = fd;
 				fd = null;
-				fs.close(fdToClose, () => {});
+				fs.close(fdToClose, () => {
+					console.log(`[REC-DEBUG] evdev closed: ${devicePath}`);
+				});
 			}
 		};
 		fs.open(devicePath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK, (openError, openedFd) => {
