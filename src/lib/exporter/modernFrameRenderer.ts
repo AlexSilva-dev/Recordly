@@ -26,7 +26,11 @@ import type {
 	ZoomRegion,
 	ZoomTransitionEasing,
 } from "@/components/video-editor/types";
-import { getDefaultCaptionFontFamily, ZOOM_DEPTH_SCALES } from "@/components/video-editor/types";
+import {
+	DEFAULT_WEBCAM_ROUNDNESS,
+	getDefaultCaptionFontFamily,
+	ZOOM_DEPTH_SCALES,
+} from "@/components/video-editor/types";
 import { DEFAULT_FOCUS } from "@/components/video-editor/videoPlayback/constants";
 import {
 	type CursorFollowCameraState,
@@ -60,23 +64,14 @@ import {
 } from "@/components/video-editor/videoPlayback/zoomTransform";
 import {
 	getCropMatchedWebcamHeightPercent,
+	getWebcamCornerRadiusPx,
 	getWebcamCropSourceRect,
 	getWebcamOverlayDimensionsPx,
 	getWebcamOverlayPosition,
 	isWebcamCropRegionDefault,
+	scaleWebcamOverlayPixels,
 } from "@/components/video-editor/webcamOverlay";
 import { getAssetPath, getExportableVideoUrl, getRenderableAssetUrl } from "@/lib/assetPath";
-import { extensionHost } from "@/lib/extensions";
-import {
-	mapCursorToCanvasNormalized,
-	mapSmoothedCursorToCanvasNormalized,
-} from "@/lib/extensions/cursorCoordinates";
-import {
-	executeExtensionCursorEffects,
-	executeExtensionRenderHooks,
-	notifyCursorInteraction,
-} from "@/lib/extensions/renderHooks";
-import { applyCanvasSceneTransform } from "@/lib/extensions/sceneTransform";
 import { drawSquircleOnCanvas, drawSquircleOnGraphics } from "@/lib/geometry/squircle";
 import {
 	clampMediaTimeToDuration,
@@ -97,6 +92,7 @@ import { ForwardFrameSource } from "./forwardFrameSource";
 import { resolveMediaElementSource } from "./localMediaSource";
 import {
 	getShadowFilterPadding,
+	getWebcamShadowStrength,
 	VIDEO_SHADOW_LAYER_PROFILES,
 	WEBCAM_SHADOW_LAYER_PROFILES,
 } from "./shadowProfile";
@@ -164,7 +160,6 @@ interface FrameRenderConfig {
 	cursorSway?: number;
 	zoomSmoothness?: number;
 	zoomClassicMode?: boolean;
-	frame?: string | null;
 	nativeReadbackMode?: "pixels" | "canvas";
 }
 
@@ -388,7 +383,6 @@ export class FrameRenderer {
 	private cameraContainer: Container | null = null;
 	private videoEffectsContainer: Container | null = null;
 	private videoContainer: Container | null = null;
-	private frameContainer: Container | null = null;
 	private cursorContainer: Container | null = null;
 	private overlayContainer: Container | null = null;
 	private annotationContainer: Container | null = null;
@@ -438,20 +432,6 @@ export class FrameRenderer {
 	private captionSprite: Sprite | null = null;
 	private captionTextureSource: MutableVideoTextureSource | null = null;
 	private captionRenderKey: string | null = null;
-	private frameSprite: Sprite | null = null;
-	private frameImage: HTMLImageElement | null = null;
-	private frameDraw:
-		| ((ctx: CanvasRenderingContext2D, width: number, height: number) => void)
-		| null = null;
-	private frameInsets: {
-		top: number;
-		right: number;
-		bottom: number;
-		left: number;
-	} | null = null;
-	private frameRasterCanvas: HTMLCanvasElement | null = null;
-	private frameRasterWidth = 0;
-	private frameRasterHeight = 0;
 	private exportCompositeCanvas: ExportCompositeCanvasState | null = null;
 	private temporalCompositeCanvas: ExportCompositeCanvasState | null = null;
 	private outputCanvasOverride: HTMLCanvasElement | null = null;
@@ -481,9 +461,6 @@ export class FrameRenderer {
 	private retainedSceneBitmap: ImageBitmap | null = null;
 	private retainedBackgroundBitmapTimestamp: number | null = null;
 	private retainedBackgroundBitmap: ImageBitmap | null = null;
-	private compositeCanvas: HTMLCanvasElement | null = null;
-	private compositeCtx: CanvasRenderingContext2D | null = null;
-	private lastEmittedClickTimeMs = -1;
 	private cleanupWebcamSource: (() => void) | null = null;
 
 	constructor(config: FrameRenderConfig) {
@@ -547,7 +524,6 @@ export class FrameRenderer {
 		this.cameraContainer = new Container();
 		this.videoEffectsContainer = new Container();
 		this.videoContainer = new Container();
-		this.frameContainer = new Container();
 		this.cursorContainer = new Container();
 		this.overlayContainer = new Container();
 		this.annotationContainer = new Container();
@@ -565,7 +541,6 @@ export class FrameRenderer {
 		);
 
 		this.cameraContainer.addChild(this.videoEffectsContainer);
-		this.cameraContainer.addChild(this.frameContainer);
 		this.cameraContainer.addChild(this.cursorContainer);
 		this.videoEffectsContainer.addChild(this.videoContainer);
 		this.videoEffectsContainer.filterArea = new Rectangle(
@@ -587,7 +562,7 @@ export class FrameRenderer {
 		this.overlayContainer.addChild(this.captionContainer);
 
 		this.videoMaskGraphics = new Graphics();
-		this.videoContainer.addChild(this.videoMaskGraphics);
+		this.videoEffectsContainer.addChild(this.videoMaskGraphics);
 		this.videoContainer.mask = this.videoMaskGraphics;
 
 		this.webcamMaskGraphics = new Graphics();
@@ -627,7 +602,6 @@ export class FrameRenderer {
 		}
 
 		await this.setupBackground();
-		await this.setupFrame();
 		await this.setupWebcamSource();
 
 		this.annotationScaleFactor = this.calculateAnnotationScaleFactor();
@@ -641,18 +615,6 @@ export class FrameRenderer {
 				maxKernelSize: 13,
 			});
 			this.motionBlurFilter = new MotionBlurFilter([0, 0], 5, 0);
-		}
-
-		this.compositeCanvas = document.createElement("canvas");
-		this.compositeCanvas.width = this.config.width;
-		this.compositeCanvas.height = this.config.height;
-		this.compositeCtx = configureHighQuality2DContext(
-			this.compositeCanvas.getContext("2d", {
-				willReadFrequently: false,
-			}),
-		);
-		if (!this.compositeCtx) {
-			throw new Error("Failed to get 2D context for composite canvas");
 		}
 
 		this.updateVideoEffectsFilterState();
@@ -1380,6 +1342,7 @@ export class FrameRenderer {
 				this.backgroundBlurFilter.blur = this.config.backgroundBlur * 3;
 				this.backgroundBlurFilter.quality = 4;
 				this.backgroundBlurFilter.resolution = this.app?.renderer.resolution ?? 1;
+				this.backgroundBlurFilter.repeatEdgePixels = true;
 				this.backgroundSprite.filters = [this.backgroundBlurFilter];
 			}
 		} else if (this.backgroundTextureSource) {
@@ -1410,8 +1373,16 @@ export class FrameRenderer {
 		}
 
 		blurredCtx.save();
-		blurredCtx.filter = `blur(${this.config.backgroundBlur * 3}px)`;
-		blurredCtx.drawImage(sourceCanvas, 0, 0, blurredCanvas.width, blurredCanvas.height);
+		const blurPx = this.config.backgroundBlur * 3;
+		const overscan = Math.ceil(blurPx * 2);
+		blurredCtx.filter = `blur(${blurPx}px)`;
+		blurredCtx.drawImage(
+			sourceCanvas,
+			-overscan,
+			-overscan,
+			blurredCanvas.width + overscan * 2,
+			blurredCanvas.height + overscan * 2,
+		);
 		blurredCtx.restore();
 
 		return blurredCanvas;
@@ -2122,41 +2093,6 @@ export class FrameRenderer {
 			? `file://${encodeURI(wallpaper)}`
 			: wallpaper;
 		return getRenderableAssetUrl(wallpaperAsset);
-	}
-
-	private async setupFrame(): Promise<void> {
-		const frameId = this.config.frame;
-		if (!frameId) {
-			return;
-		}
-
-		const frames = extensionHost.getFrames();
-		const frame = frames.find((candidate) => candidate.id === frameId);
-		if (!frame) {
-			console.warn(`[ModernFrameRenderer] Device frame "${frameId}" not found`);
-			return;
-		}
-
-		this.frameInsets = frame.screenInsets;
-
-		if (frame.draw) {
-			this.frameDraw = frame.draw;
-			return;
-		}
-
-		const image = new Image();
-		image.crossOrigin = "anonymous";
-		await new Promise<void>((resolve, reject) => {
-			image.onload = () => resolve();
-			image.onerror = () =>
-				reject(
-					new Error(
-						`[ModernFrameRenderer] Failed to load device frame image: ${frameId}`,
-					),
-				);
-			image.src = frame.filePath;
-		});
-		this.frameImage = image;
 	}
 
 	private async fallbackBackgroundForwardFrameSourceToMediaElement(): Promise<boolean> {
@@ -2896,7 +2832,7 @@ export class FrameRenderer {
 			return;
 		}
 
-		const margin = webcam.margin ?? 24;
+		const margin = scaleWebcamOverlayPixels(webcam.margin ?? 24, this.config.width);
 		const widthPercent = webcam.width ?? webcam.size ?? 50;
 		const aspectSourceWidth =
 			liveSourceDimensions.width > 0
@@ -2933,8 +2869,12 @@ export class FrameRenderer {
 			positionY: webcam.positionY ?? 1,
 			legacyCorner: webcam.corner,
 		});
-		const radius = Math.max(0, webcam.cornerRadius ?? 18);
-		const shadowStrength = clampUnitInterval(webcam.shadow ?? 0);
+		const radius = getWebcamCornerRadiusPx(
+			webcam.roundness ?? DEFAULT_WEBCAM_ROUNDNESS,
+			dimensions.width,
+			dimensions.height,
+		);
+		const shadowStrength = getWebcamShadowStrength(webcam.shadow ?? 0);
 
 		this.webcamRootContainer.visible = true;
 
@@ -3214,16 +3154,6 @@ export class FrameRenderer {
 				: null;
 
 		if (temporalSnapshot) {
-			const sourceCanvas =
-				this.outputCanvasOverride ?? this.ensureTemporalCompositeCanvas()?.canvas;
-			if (sourceCanvas && this.shouldCompositeExtensionFrame()) {
-				this.compositeExtensions(
-					temporalSnapshot.timeMs,
-					temporalSnapshot.cursorTimeMs,
-					sourceCanvas,
-				);
-				this.outputCanvasOverride = this.compositeCanvas;
-			}
 			return;
 		}
 
@@ -3302,228 +3232,6 @@ export class FrameRenderer {
 
 		this.outputCanvasOverride = null;
 		this.app.render();
-		this.compositeExtensions(timeMs, cursorTimeMs);
-	}
-
-	private shouldCompositeExtensionFrame(): boolean {
-		return (
-			extensionHost.hasCursorEffects() ||
-			extensionHost.hasRenderHooks("post-zoom") ||
-			extensionHost.hasRenderHooks("post-cursor") ||
-			extensionHost.hasRenderHooks("post-annotations") ||
-			extensionHost.hasRenderHooks("final")
-		);
-	}
-
-	private compositeExtensions(
-		timeMs: number,
-		cursorTimeMs: number,
-		sourceCanvas?: CanvasImageSource,
-	): void {
-		if (!this.app || !this.compositeCtx || !this.compositeCanvas) {
-			return;
-		}
-
-		if (!this.shouldCompositeExtensionFrame()) {
-			return;
-		}
-
-		this.compositeCtx.clearRect(0, 0, this.config.width, this.config.height);
-		this.compositeCtx.drawImage(sourceCanvas ?? (this.app.canvas as HTMLCanvasElement), 0, 0);
-
-		const maskRect = this.layoutCache?.maskRect;
-		const smoothedCursor = mapSmoothedCursorToCanvasNormalized(
-			this.cursorOverlay?.getSmoothedCursorSnapshot() ?? null,
-			{
-				maskRect,
-				canvasWidth: this.config.width,
-				canvasHeight: this.config.height,
-			},
-		);
-		extensionHost.setSmoothedCursor(
-			smoothedCursor
-				? {
-						timeMs,
-						cx: smoothedCursor.cx,
-						cy: smoothedCursor.cy,
-						trail: smoothedCursor.trail,
-					}
-				: null,
-		);
-		const rawCursor = this.getCursorPosition(cursorTimeMs);
-		const hookParams = {
-			width: this.config.width,
-			height: this.config.height,
-			timeMs,
-			durationMs: 0,
-			cursor: smoothedCursor
-				? {
-						cx: smoothedCursor.cx,
-						cy: smoothedCursor.cy,
-						interactionType: rawCursor?.interactionType,
-					}
-				: rawCursor,
-			smoothedCursor,
-			videoLayout: maskRect
-				? {
-						maskRect: {
-							x: maskRect.x,
-							y: maskRect.y,
-							width: maskRect.width,
-							height: maskRect.height,
-						},
-						borderRadius: this.config.borderRadius ?? 0,
-						padding: this.config.padding ?? 0,
-					}
-				: undefined,
-			zoom: {
-				scale: this.animationState.scale,
-				focusX: this.animationState.focusX,
-				focusY: this.animationState.focusY,
-				progress: this.animationState.progress,
-			},
-			shadow: {
-				enabled: this.config.showShadow,
-				intensity: this.config.shadowIntensity,
-			},
-			sceneTransform: {
-				scale: this.animationState.appliedScale,
-				x: this.animationState.x,
-				y: this.animationState.y,
-			},
-		};
-
-		this.compositeCtx.save();
-		applyCanvasSceneTransform(this.compositeCtx, {
-			scale: this.animationState.appliedScale,
-			x: this.animationState.x,
-			y: this.animationState.y,
-		});
-		executeExtensionRenderHooks("post-video", this.compositeCtx, hookParams);
-		executeExtensionRenderHooks("post-zoom", this.compositeCtx, hookParams);
-		executeExtensionRenderHooks("post-cursor", this.compositeCtx, hookParams);
-		this.emitCursorInteractions(cursorTimeMs);
-		executeExtensionCursorEffects(
-			this.compositeCtx,
-			timeMs,
-			this.config.width,
-			this.config.height,
-			{
-				zoom: hookParams.zoom,
-				sceneTransform: hookParams.sceneTransform,
-				videoLayout: hookParams.videoLayout,
-			},
-		);
-		this.compositeCtx.restore();
-
-		executeExtensionRenderHooks("post-webcam", this.compositeCtx, hookParams);
-		executeExtensionRenderHooks("post-annotations", this.compositeCtx, hookParams);
-		executeExtensionRenderHooks("final", this.compositeCtx, hookParams);
-	}
-
-	private getCursorPosition(
-		timeMs: number,
-	): { cx: number; cy: number; interactionType?: string } | null {
-		const telemetry = this.config.cursorTelemetry;
-		if (!telemetry || telemetry.length === 0) {
-			return null;
-		}
-
-		// Clamp to first/last sample when out of range
-		if (timeMs <= telemetry[0].timeMs) {
-			const s = telemetry[0];
-			return mapCursorToCanvasNormalized(
-				{ cx: s.cx, cy: s.cy, interactionType: s.interactionType },
-				{
-					maskRect: this.layoutCache?.maskRect,
-					canvasWidth: this.config.width,
-					canvasHeight: this.config.height,
-				},
-			);
-		}
-		if (timeMs >= telemetry[telemetry.length - 1].timeMs) {
-			const s = telemetry[telemetry.length - 1];
-			return mapCursorToCanvasNormalized(
-				{ cx: s.cx, cy: s.cy, interactionType: s.interactionType },
-				{
-					maskRect: this.layoutCache?.maskRect,
-					canvasWidth: this.config.width,
-					canvasHeight: this.config.height,
-				},
-			);
-		}
-
-		// Binary search for surrounding samples
-		let lo = 0;
-		let hi = telemetry.length - 1;
-		while (lo < hi - 1) {
-			const mid = (lo + hi) >> 1;
-			if (telemetry[mid].timeMs <= timeMs) {
-				lo = mid;
-			} else {
-				hi = mid;
-			}
-		}
-
-		const a = telemetry[lo];
-		const b = telemetry[hi];
-		const span = b.timeMs - a.timeMs;
-
-		// Linear interpolation between samples
-		const t = span > 0 ? (timeMs - a.timeMs) / span : 0;
-		const cx = a.cx + (b.cx - a.cx) * t;
-		const cy = a.cy + (b.cy - a.cy) * t;
-
-		return mapCursorToCanvasNormalized(
-			{ cx, cy, interactionType: a.interactionType },
-			{
-				maskRect: this.layoutCache?.maskRect,
-				canvasWidth: this.config.width,
-				canvasHeight: this.config.height,
-			},
-		);
-	}
-
-	private emitCursorInteractions(timeMs: number): void {
-		const telemetry = this.config.cursorTelemetry;
-		if (!telemetry || telemetry.length === 0) {
-			return;
-		}
-
-		for (const point of telemetry) {
-			if (point.timeMs > timeMs) {
-				break;
-			}
-			if (point.timeMs < timeMs - 100) {
-				continue;
-			}
-			if (!point.interactionType || point.interactionType === "move") {
-				continue;
-			}
-			if (point.timeMs === this.lastEmittedClickTimeMs) {
-				continue;
-			}
-
-			const mappedCursor = mapCursorToCanvasNormalized(
-				{ cx: point.cx, cy: point.cy, interactionType: point.interactionType },
-				{
-					maskRect: this.layoutCache?.maskRect,
-					canvasWidth: this.config.width,
-					canvasHeight: this.config.height,
-				},
-			);
-			if (!mappedCursor) {
-				continue;
-			}
-
-			this.lastEmittedClickTimeMs = point.timeMs;
-			notifyCursorInteraction(
-				point.timeMs,
-				mappedCursor.cx,
-				mappedCursor.cy,
-				point.interactionType,
-			);
-		}
 	}
 
 	private updateLayout(): void {
@@ -3543,7 +3251,7 @@ export class FrameRenderer {
 			width,
 			height,
 			padding,
-			frameInsets: this.frameInsets,
+			frameInsets: null,
 			cropRegion,
 			videoWidth,
 			videoHeight,
@@ -3552,7 +3260,11 @@ export class FrameRenderer {
 		this.videoSprite.scale.set(layout.scale);
 		this.videoSprite.position.set(layout.spriteX, layout.spriteY);
 
-		const scaledBorderRadius = scalePreviewBorderRadius(width, height, borderRadius);
+		const scaledBorderRadius = scalePreviewBorderRadius(
+			layout.croppedDisplayWidth,
+			layout.croppedDisplayHeight,
+			borderRadius,
+		);
 
 		this.videoMaskGraphics.clear();
 		drawSquircleOnGraphics(this.videoMaskGraphics, {
@@ -3588,85 +3300,6 @@ export class FrameRenderer {
 				sourceCrop: cropRegion,
 			},
 		};
-
-		this.updateFrameLayout();
-	}
-
-	private updateFrameLayout(): void {
-		if (!this.frameContainer || !this.layoutCache) {
-			return;
-		}
-
-		if (!this.frameImage && !this.frameDraw) {
-			if (this.frameSprite) {
-				const texture = this.frameSprite.texture;
-				this.frameContainer.removeChild(this.frameSprite);
-				this.frameSprite.destroy();
-				texture.destroy(true);
-				this.frameSprite = null;
-			}
-			return;
-		}
-
-		const maskRect = this.layoutCache.maskRect;
-		const insets = this.frameInsets;
-		let frameX = maskRect.x;
-		let frameY = maskRect.y;
-		let frameWidth = maskRect.width;
-		let frameHeight = maskRect.height;
-
-		if (insets) {
-			const screenWidth = maskRect.width;
-			const screenHeight = maskRect.height;
-			frameWidth = screenWidth / (1 - insets.left - insets.right);
-			frameHeight = screenHeight / (1 - insets.top - insets.bottom);
-			frameX = maskRect.x - insets.left * frameWidth;
-			frameY = maskRect.y - insets.top * frameHeight;
-		}
-
-		if (this.frameDraw) {
-			const targetWidth = Math.max(1, Math.round(frameWidth));
-			const targetHeight = Math.max(1, Math.round(frameHeight));
-			if (
-				!this.frameRasterCanvas ||
-				this.frameRasterWidth !== targetWidth ||
-				this.frameRasterHeight !== targetHeight
-			) {
-				const canvas = document.createElement("canvas");
-				canvas.width = targetWidth;
-				canvas.height = targetHeight;
-				const context = configureHighQuality2DContext(canvas.getContext("2d"));
-				if (!context) {
-					return;
-				}
-				this.frameDraw(context, targetWidth, targetHeight);
-				this.frameRasterCanvas = canvas;
-				this.frameRasterWidth = targetWidth;
-				this.frameRasterHeight = targetHeight;
-
-				const texture = Texture.from(canvas);
-				if (!this.frameSprite) {
-					this.frameSprite = new Sprite(texture);
-					this.frameContainer.addChild(this.frameSprite);
-				} else {
-					const previousTexture = this.frameSprite.texture;
-					this.frameSprite.texture = texture;
-					previousTexture.destroy(true);
-				}
-			}
-		} else if (this.frameImage && !this.frameSprite) {
-			const texture = Texture.from(this.frameImage);
-			this.frameSprite = new Sprite(texture);
-			this.frameContainer.addChild(this.frameSprite);
-		}
-
-		if (!this.frameSprite) {
-			return;
-		}
-
-		this.frameSprite.position.set(frameX, frameY);
-		this.frameSprite.width = frameWidth;
-		this.frameSprite.height = frameHeight;
 	}
 
 	private updateVideoShadowLayout(layout: {
@@ -3823,10 +3456,6 @@ export class FrameRenderer {
 			throw new Error("Renderer not initialized");
 		}
 
-		if (this.shouldCompositeExtensionFrame() && this.compositeCanvas) {
-			return this.compositeCanvas;
-		}
-
 		return this.outputCanvasOverride ?? (this.app.canvas as HTMLCanvasElement);
 	}
 
@@ -3835,9 +3464,7 @@ export class FrameRenderer {
 			return null;
 		}
 
-		const finalCanvas =
-			this.outputCanvasOverride ??
-			(this.shouldCompositeExtensionFrame() ? this.compositeCanvas : null);
+		const finalCanvas = this.outputCanvasOverride;
 
 		if (finalCanvas) {
 			const context = finalCanvas.getContext("2d");
@@ -3869,9 +3496,6 @@ export class FrameRenderer {
 		}
 		if (this.captionSprite?.texture) {
 			texturesToDestroy.add(this.captionSprite.texture);
-		}
-		if (this.frameSprite?.texture) {
-			texturesToDestroy.add(this.frameSprite.texture);
 		}
 		for (const layer of this.videoShadowLayers) {
 			if (layer.sprite?.texture) {
@@ -3917,7 +3541,6 @@ export class FrameRenderer {
 		this.cameraContainer = null;
 		this.videoEffectsContainer = null;
 		this.videoContainer = null;
-		this.frameContainer = null;
 		this.cursorContainer = null;
 		this.overlayContainer = null;
 		this.annotationContainer = null;
@@ -3987,13 +3610,6 @@ export class FrameRenderer {
 		this.captionSprite = null;
 		this.captionTextureSource = null;
 		this.captionRenderKey = null;
-		this.frameSprite = null;
-		this.frameImage = null;
-		this.frameDraw = null;
-		this.frameInsets = null;
-		this.frameRasterCanvas = null;
-		this.frameRasterWidth = 0;
-		this.frameRasterHeight = 0;
 		this.exportCompositeCanvas = null;
 		this.temporalCompositeCanvas = null;
 		this.outputCanvasOverride = null;

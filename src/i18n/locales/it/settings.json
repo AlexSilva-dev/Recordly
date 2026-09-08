@@ -35,6 +35,7 @@
 			"macos": "macOS",
 			"tahoe": "Tahoe",
 			"tahoe-inverted": "Tahoe invertito",
+			"windows11": "Windows 11",
 			"dot": "Punto",
 			"figma": "Minimal",
 			"lavender": "Lavanda",
@@ -43,7 +44,7 @@
 			"amongus": "Among Us",
 			"turtle": "Tartaruga"
 		},
-		"backgroundBlur": "Sfocatura sfondo",
+		"backgroundBlur": "Sfocatura",
 		"zoomMotionBlur": "Motion blur dello zoom",
 		"temporalZoomMotionBlur": "Sfocatura zoom temporale",
 		"temporalZoomMotionBlurDescription": "Controlla la finestra dell'otturatore e i campioni di frame usati dal nuovo passaggio di sfocatura zoom.",
@@ -254,5 +255,11 @@
 		"micLabel": "Sorgente microfono",
 		"mixedLabel": "Sorgente",
 		"deleteRegion": "Elimina audio"
+	},
+	"updates": {
+		"experimentalDescription": "Hai attivato gli aggiornamenti sperimentali, quindi puoi scegliere di provare l'ultimo aggiornamento di Recordly prima che sia disponibile per tutti.",
+		"title": "Aggiornamenti",
+		"experimental": "Aggiornamenti sperimentali",
+		"saveFailed": "Impossibile cambiare il canale di aggiornamento."
 	}
 }

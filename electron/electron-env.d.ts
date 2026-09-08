@@ -49,6 +49,7 @@ interface UpdateToastState {
 	phase: "available" | "downloading" | "ready" | "error";
 	delayMs: number;
 	isPreview?: boolean;
+	isExperimental?: boolean;
 	progressPercent?: number;
 	transferredBytes?: number;
 	totalBytes?: number;
@@ -64,13 +65,6 @@ interface UpdateStatusSummary {
 	detail?: string;
 }
 
-type RendererExtensionInfo = import("./extensions/extensionTypes").ExtensionInfo;
-type RendererExtensionReview = import("./extensions/extensionTypes").ExtensionReview;
-type RendererMarketplaceExtension = import("./extensions/extensionTypes").MarketplaceExtension;
-type RendererMarketplaceReviewStatus =
-	import("./extensions/extensionTypes").MarketplaceReviewStatus;
-type RendererMarketplaceSearchResult =
-	import("./extensions/extensionTypes").MarketplaceSearchResult;
 type RendererRecordingSessionData = import("./ipc/types").RecordingSessionData;
 
 interface RendererFfmpegAudioMuxMetrics {
@@ -825,6 +819,12 @@ interface Window {
 		skipUpdateVersion: () => Promise<{ success: boolean; message?: string }>;
 		getCurrentUpdateToastPayload: () => Promise<UpdateToastState | null>;
 		getUpdateStatusSummary: () => Promise<UpdateStatusSummary>;
+		getExperimentalUpdatesEnabled: () => Promise<boolean>;
+		setExperimentalUpdatesEnabled: (enabled: boolean) => Promise<{
+			success: boolean;
+			enabled: boolean;
+			error?: string;
+		}>;
 		previewUpdateToast: () => Promise<{ success: boolean }>;
 		checkForAppUpdates: () => Promise<{ success: boolean; logPath: string }>;
 		onUpdateToastStateChanged: (
@@ -875,14 +875,18 @@ interface Window {
 		}>;
 		/** Returns the app version from package.json */
 		getAppVersion: () => Promise<string>;
+		/** Returns the configured remote announcement feed, or null when unavailable. */
+		getAnnouncements: () => Promise<unknown | null>;
 		/** Hide the OS cursor before browser capture starts. */
 		hideOsCursor: () => Promise<{ success: boolean }>;
-		/** Recording preferences (mic, system audio) */
+		/** Recording preferences (mic, system audio, webcam) */
 		getRecordingPreferences: () => Promise<{
 			success: boolean;
 			microphoneEnabled: boolean;
 			microphoneDeviceId?: string;
 			systemAudioEnabled: boolean;
+			webcamEnabled: boolean;
+			webcamDeviceId?: string;
 		}>;
 		getRecordingAudioLabConfig: () => Promise<{
 			browserMicrophoneProfile: string;
@@ -892,6 +896,8 @@ interface Window {
 			microphoneEnabled?: boolean;
 			microphoneDeviceId?: string;
 			systemAudioEnabled?: boolean;
+			webcamEnabled?: boolean;
+			webcamDeviceId?: string;
 		}) => Promise<{ success: boolean; error?: string }>;
 		/** Countdown timer before recording */
 		getCountdownDelay: () => Promise<{ success: boolean; delay: number }>;
@@ -900,46 +906,6 @@ interface Window {
 		cancelCountdown: () => Promise<{ success: boolean }>;
 		getActiveCountdown: () => Promise<{ success: boolean; seconds: number | null }>;
 		onCountdownTick: (callback: (seconds: number) => void) => () => void;
-		extensionsDiscover: () => Promise<RendererExtensionInfo[]>;
-		extensionsList: () => Promise<RendererExtensionInfo[]>;
-		extensionsGet: (id: string) => Promise<RendererExtensionInfo | null>;
-		extensionsEnable: (id: string) => Promise<{ success: boolean; error?: string }>;
-		extensionsDisable: (id: string) => Promise<{ success: boolean; error?: string }>;
-		extensionsInstallFromFolder: () => Promise<{
-			success: boolean;
-			extension?: RendererExtensionInfo;
-			message?: string;
-			error?: string;
-			canceled?: boolean;
-		}>;
-		extensionsUninstall: (id: string) => Promise<{ success: boolean; error?: string }>;
-		extensionsGetDirectory: () => Promise<{ success: boolean; path?: string; error?: string }>;
-		extensionsOpenDirectory: () => Promise<{ success: boolean; path?: string; error?: string }>;
-		extensionsMarketplaceSearch: (params: {
-			query?: string;
-			tags?: string[];
-			sort?: string;
-			page?: number;
-			pageSize?: number;
-		}) => Promise<RendererMarketplaceSearchResult & { error?: string }>;
-		extensionsMarketplaceGet: (id: string) => Promise<RendererMarketplaceExtension | null>;
-		extensionsMarketplaceInstall: (
-			extensionId: string,
-			downloadUrl: string,
-		) => Promise<{ success: boolean; error?: string }>;
-		extensionsMarketplaceSubmit: (
-			extensionId: string,
-		) => Promise<{ success: boolean; reviewId?: string; error?: string }>;
-		extensionsReviewsList: (params: {
-			status?: RendererMarketplaceReviewStatus;
-			page?: number;
-			pageSize?: number;
-		}) => Promise<{ reviews: RendererExtensionReview[]; total: number; error?: string }>;
-		extensionsReviewUpdate: (
-			reviewId: string,
-			status: RendererMarketplaceReviewStatus,
-			notes?: string,
-		) => Promise<{ success: boolean; error?: string }>;
 	};
 }
 

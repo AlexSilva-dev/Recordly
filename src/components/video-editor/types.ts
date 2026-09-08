@@ -55,7 +55,14 @@ export interface CursorVisualSettings {
 	style: CursorStyle;
 }
 
-export type CursorStyle = "macos" | "tahoe" | "tahoe-inverted" | "dot" | "figma" | (string & {}); // extension-contributed cursor styles
+export type CursorStyle =
+	| "macos"
+	| "tahoe"
+	| "tahoe-inverted"
+	| "windows11"
+	| "dot"
+	| "figma"
+	| (string & {});
 export const DEFAULT_CURSOR_STYLE: CursorStyle = "tahoe";
 
 export type CursorClickEffectStyle = "none" | "spotlight" | "ripple" | "echo";
@@ -140,15 +147,17 @@ export interface WebcamOverlaySettings {
 	width: number;
 	height: number;
 	reactToZoom: boolean;
-	cornerRadius: number;
+	roundness: number;
+	/** Legacy pixel value retained only while loading older projects. */
+	cornerRadius?: number;
 	shadow: number;
 	margin: number;
 }
 
 export const DEFAULT_CURSOR_SIZE = 3.0;
 export const DEFAULT_CURSOR_SMOOTHING = 0.67;
-export const DEFAULT_CURSOR_MOTION_BLUR = 0.4;
-export const DEFAULT_CURSOR_CLICK_BOUNCE = 2.5;
+export const DEFAULT_CURSOR_MOTION_BLUR = 0.6;
+export const DEFAULT_CURSOR_CLICK_BOUNCE = 2;
 export const DEFAULT_CURSOR_CLICK_BOUNCE_DURATION = 350;
 export const DEFAULT_CURSOR_SWAY = 0.4;
 export const DEFAULT_ZOOM_SMOOTHNESS = 0.5;
@@ -182,8 +191,8 @@ export const DEFAULT_ZOOM_OUT_EASING: ZoomTransitionEasing = "recordly";
 export const DEFAULT_CONNECTED_ZOOM_EASING: ZoomTransitionEasing = "glide";
 export const DEFAULT_WEBCAM_SIZE = 40;
 export const DEFAULT_WEBCAM_REACT_TO_ZOOM = true;
-export const DEFAULT_WEBCAM_CORNER_RADIUS = 90;
-export const DEFAULT_WEBCAM_SHADOW = 0.67;
+export const DEFAULT_WEBCAM_ROUNDNESS = 100;
+export const DEFAULT_WEBCAM_SHADOW = 0.3;
 export const DEFAULT_WEBCAM_MARGIN = 24;
 export const DEFAULT_WEBCAM_POSITION_PRESET: WebcamPositionPreset = "bottom-right";
 export const DEFAULT_WEBCAM_POSITION_X = 1;
@@ -204,7 +213,7 @@ export const DEFAULT_WEBCAM_OVERLAY: WebcamOverlaySettings = {
 	width: DEFAULT_WEBCAM_SIZE,
 	height: DEFAULT_WEBCAM_SIZE,
 	reactToZoom: DEFAULT_WEBCAM_REACT_TO_ZOOM,
-	cornerRadius: DEFAULT_WEBCAM_CORNER_RADIUS,
+	roundness: DEFAULT_WEBCAM_ROUNDNESS,
 	shadow: DEFAULT_WEBCAM_SHADOW,
 	margin: DEFAULT_WEBCAM_MARGIN,
 };
@@ -435,11 +444,11 @@ export interface AnnotationTextStyle {
 }
 
 function getDefaultAnnotationFontFamily() {
-	return '"SF Pro Display", "SF Pro Text", Helvetica, sans-serif';
+	return '"SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif';
 }
 
 export function getDefaultCaptionFontFamily() {
-	return '"SF Pro Text", "SF Pro Display", Helvetica, sans-serif';
+	return '"SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif';
 }
 
 export interface AnnotationRegion {

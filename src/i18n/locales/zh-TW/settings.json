@@ -35,6 +35,7 @@
 			"macos": "macOS",
 			"tahoe": "Tahoe",
 			"tahoe-inverted": "Tahoe 反相",
+			"windows11": "Windows 11",
 			"dot": "圓點",
 			"figma": "極簡",
 			"lavender": "Lavender",
@@ -43,7 +44,7 @@
 			"amongus": "Among Us",
 			"turtle": "Turtle"
 		},
-		"backgroundBlur": "背景模糊",
+		"backgroundBlur": "模糊",
 		"zoomMotionBlur": "縮放動態模糊",
 		"temporalZoomMotionBlur": "Temporal Zoom Blur",
 		"temporalZoomMotionBlurDescription": "Control the shutter window and frame samples used by the newer zoom blur pass.",
@@ -254,5 +255,11 @@
 		"micLabel": "麥克風源",
 		"mixedLabel": "源",
 		"deleteRegion": "刪除音訊"
+	},
+	"updates": {
+		"experimentalDescription": "你已選擇接收實驗性更新，因此可以在 Recordly 最新更新廣泛推出之前選擇先行測試。",
+		"title": "更新",
+		"experimental": "實驗性更新",
+		"saveFailed": "無法變更更新頻道。"
 	}
 }

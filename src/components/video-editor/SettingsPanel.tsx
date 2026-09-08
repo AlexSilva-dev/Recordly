@@ -21,18 +21,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useTheme } from "@/contexts/ThemeContext";
-import {
-	getAssetPath,
-	getRenderableAssetUrl,
-	getRenderableVideoUrl,
-	getWallpaperThumbnailUrl,
-} from "@/lib/assetPath";
-import {
-	TEMPORAL_MOTION_BLUR_DEFAULT_SAMPLE_COUNT,
-	TEMPORAL_MOTION_BLUR_DEFAULT_SHUTTER_FRACTION,
-} from "@/lib/exporter/temporalMotionBlur";
-import type { ExtensionSettingField } from "@/lib/extensions";
-import { extensionHost, type FrameInstance } from "@/lib/extensions";
+import { getAssetPath, getRenderableVideoUrl, getWallpaperThumbnailUrl } from "@/lib/assetPath";
 import { cn } from "@/lib/utils";
 import type { BuiltInWallpaper } from "@/lib/wallpapers";
 import {
@@ -53,6 +42,7 @@ import {
 	getMatchingCursorMotionPresetId,
 } from "./cursorMotionPresets";
 import { loadEditorPreferences, saveEditorPreferences } from "./editorPreferences";
+import { getDefaultBorderRadiusPercent } from "./projectPersistence";
 import { SliderControl } from "./SliderControl";
 import { KeyboardShortcutsDialog } from "./TutorialHelp";
 import type {
@@ -71,7 +61,6 @@ import type {
 	WebcamPositionPreset,
 	ZoomDepth,
 	ZoomMode,
-	ZoomMotionBlurTuning,
 	ZoomTransitionEasing,
 } from "./types";
 import {
@@ -85,21 +74,19 @@ import {
 	DEFAULT_CURSOR_CLICK_EFFECT_DURATION_MS,
 	DEFAULT_CURSOR_CLICK_EFFECT_OPACITY,
 	DEFAULT_CURSOR_CLICK_EFFECT_SCALE,
-	DEFAULT_CURSOR_MOTION_BLUR,
 	DEFAULT_CURSOR_SIZE,
 	DEFAULT_CURSOR_STYLE,
 	DEFAULT_CURSOR_SWAY,
 	DEFAULT_PADDING,
-	DEFAULT_WEBCAM_CORNER_RADIUS,
 	DEFAULT_WEBCAM_MARGIN,
 	DEFAULT_WEBCAM_POSITION_PRESET,
 	DEFAULT_WEBCAM_POSITION_X,
 	DEFAULT_WEBCAM_POSITION_Y,
 	DEFAULT_WEBCAM_REACT_TO_ZOOM,
+	DEFAULT_WEBCAM_ROUNDNESS,
 	DEFAULT_WEBCAM_SHADOW,
 	DEFAULT_WEBCAM_SIZE,
 	DEFAULT_ZOOM_IN_DURATION_MS,
-	DEFAULT_ZOOM_MOTION_BLUR_TUNING,
 	DEFAULT_ZOOM_OUT_DURATION_MS,
 } from "./types";
 import { fromCursorSwaySliderValue, toCursorSwaySliderValue } from "./videoPlayback/cursorSway";
@@ -119,15 +106,6 @@ import {
 const tahoeCursorUrl = cursorSetAssets.tahoe.arrow.url;
 const BUILTIN_CURSOR_PREVIEW_SIZE = 28;
 const BUILTIN_CURSOR_PREVIEW_FRAME_SIZE = 48;
-
-function getStepPrecision(step: number): number {
-	if (!Number.isFinite(step) || step <= 0) return 0;
-	const [mantissa = "0", exponentPart = "0"] = step.toExponential().split("e");
-	const exponent = Number.parseInt(exponentPart, 10);
-	const mantissaDecimals = (mantissa.split(".")[1] ?? "").replace(/0+$/, "").length;
-	const precision = exponent < 0 ? Math.max(0, -exponent + mantissaDecimals) : mantissaDecimals;
-	return Math.min(12, precision);
-}
 
 const GRADIENTS = [
 	"linear-gradient( 111.6deg,  rgba(114,167,232,1) 9.4%, rgba(253,129,82,1) 43.9%, rgba(253,129,82,1) 54.8%, rgba(249,202,86,1) 86.3% )",
@@ -255,172 +233,6 @@ function WallpaperVideoPreview({ src }: { src: string }) {
 				e.currentTarget.currentTime = 0;
 			}}
 		/>
-	);
-}
-
-/**
- * Renders extension-contributed settings fields (toggle, slider, select, color, text).
- */
-function ExtensionSettingsSection({
-	extensionId,
-	label,
-	fields,
-}: {
-	extensionId: string;
-	label: string;
-	fields: ExtensionSettingField[];
-}) {
-	const [, forceUpdate] = useState(0);
-
-	return (
-		<div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-foreground/[0.06]">
-			<p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-				{label}
-			</p>
-			{fields.map((field) => {
-				const value =
-					extensionHost.getExtensionSetting(extensionId, field.id) ?? field.defaultValue;
-
-				if (field.type === "toggle") {
-					return (
-						<div
-							key={field.id}
-							className="flex items-center justify-between rounded-lg bg-foreground/[0.03] px-2.5 py-1.5"
-						>
-							<span className="text-[11px] text-muted-foreground">{field.label}</span>
-							<Switch
-								checked={Boolean(value)}
-								onCheckedChange={(checked) => {
-									extensionHost.setExtensionSetting(
-										extensionId,
-										field.id,
-										checked,
-									);
-									forceUpdate((n) => n + 1);
-								}}
-								className="data-[state=checked]:bg-[#2563EB] scale-75"
-							/>
-						</div>
-					);
-				}
-
-				if (field.type === "slider") {
-					const step = field.step ?? 0.01;
-					const precision = getStepPrecision(step);
-					return (
-						<div key={field.id} className="mt-1">
-							<SliderControl
-								label={field.label}
-								value={
-									typeof value === "number"
-										? value
-										: (field.defaultValue as number)
-								}
-								defaultValue={field.defaultValue as number}
-								min={field.min ?? 0}
-								max={field.max ?? 1}
-								step={step}
-								onChange={(v) => {
-									extensionHost.setExtensionSetting(extensionId, field.id, v);
-									forceUpdate((n) => n + 1);
-								}}
-								formatValue={(v) => v.toFixed(precision)}
-								parseInput={(text) => parseFloat(text)}
-							/>
-						</div>
-					);
-				}
-
-				if (field.type === "select" && field.options) {
-					return (
-						<div
-							key={field.id}
-							className="flex items-center justify-between gap-2 rounded-lg bg-foreground/[0.03] px-2.5 py-1.5"
-						>
-							<span className="text-[11px] text-muted-foreground flex-shrink-0">
-								{field.label}
-							</span>
-							<Select
-								value={String(value)}
-								onValueChange={(v) => {
-									extensionHost.setExtensionSetting(extensionId, field.id, v);
-									forceUpdate((n) => n + 1);
-								}}
-							>
-								<SelectTrigger className="h-6 w-24 text-[10px] border-foreground/10 bg-foreground/[0.03]">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{field.options.map((opt) => (
-										<SelectItem
-											key={opt.value}
-											value={opt.value}
-											className="text-[10px]"
-										>
-											{opt.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-					);
-				}
-
-				if (field.type === "color") {
-					return (
-						<div
-							key={field.id}
-							className="flex items-center justify-between gap-2 rounded-lg bg-foreground/[0.03] px-2.5 py-1.5"
-						>
-							<span className="text-[11px] text-muted-foreground flex-shrink-0">
-								{field.label}
-							</span>
-							<input
-								type="color"
-								value={String(value)}
-								onChange={(e) => {
-									extensionHost.setExtensionSetting(
-										extensionId,
-										field.id,
-										e.target.value,
-									);
-									forceUpdate((n) => n + 1);
-								}}
-								className="w-7 h-5 rounded border border-foreground/10 cursor-pointer bg-transparent"
-							/>
-						</div>
-					);
-				}
-
-				if (field.type === "text") {
-					return (
-						<div
-							key={field.id}
-							className="flex items-center justify-between gap-2 rounded-lg bg-foreground/[0.03] px-2.5 py-1.5"
-						>
-							<span className="text-[11px] text-muted-foreground flex-shrink-0">
-								{field.label}
-							</span>
-							<input
-								type="text"
-								value={String(value)}
-								onChange={(e) => {
-									extensionHost.setExtensionSetting(
-										extensionId,
-										field.id,
-										e.target.value,
-									);
-									forceUpdate((n) => n + 1);
-								}}
-								className="w-24 h-6 rounded bg-foreground/[0.06] border border-foreground/10 px-1.5 text-[10px] text-foreground"
-							/>
-						</div>
-					);
-				}
-
-				return null;
-			})}
-		</div>
 	);
 }
 
@@ -730,14 +542,6 @@ interface SettingsPanelProps {
 	onShadowChange?: (intensity: number) => void;
 	backgroundBlur?: number;
 	onBackgroundBlurChange?: (amount: number) => void;
-	zoomMotionBlurTuning?: ZoomMotionBlurTuning;
-	onZoomMotionBlurTuningChange?: (tuning: ZoomMotionBlurTuning) => void;
-	zoomTemporalMotionBlur?: number;
-	onZoomTemporalMotionBlurChange?: (amount: number) => void;
-	zoomMotionBlurSampleCount?: number | null;
-	onZoomMotionBlurSampleCountChange?: (count: number | null) => void;
-	zoomMotionBlurShutterFraction?: number | null;
-	onZoomMotionBlurShutterFractionChange?: (fraction: number | null) => void;
 	connectZooms?: boolean;
 	onConnectZoomsChange?: (enabled: boolean) => void;
 	autoApplyFreshRecordingAutoZooms?: boolean;
@@ -782,8 +586,6 @@ interface SettingsPanelProps {
 	onCameraSpringMassMultiplierChange?: (multiplier: number) => void;
 	zoomClassicMode?: boolean;
 	onZoomClassicModeChange?: (enabled: boolean) => void;
-	cursorMotionBlur?: number;
-	onCursorMotionBlurChange?: (amount: number) => void;
 	cursorClickEffect?: CursorClickEffectStyle;
 	onCursorClickEffectChange?: (effect: CursorClickEffectStyle) => void;
 	cursorClickEffectColor?: string;
@@ -811,8 +613,6 @@ interface SettingsPanelProps {
 	onClearWebcam?: () => void;
 	padding?: Padding;
 	onPaddingChange?: (padding: Padding) => void;
-	frame?: string | null;
-	onFrameChange?: (frameId: string | null) => void;
 	cropRegion?: CropRegion;
 	onCropChange?: (region: CropRegion) => void;
 	aspectRatio: AspectRatio;
@@ -889,6 +689,7 @@ const BUILTIN_CURSOR_STYLE_OPTIONS: CursorStyleOption[] = [
 	{ value: "macos", label: "macOS" },
 	{ value: "tahoe", label: "Tahoe" },
 	{ value: "tahoe-inverted", label: "Tahoe Inverted" },
+	{ value: "windows11", label: "Windows 11" },
 	{ value: "dot", label: "Dot" },
 	{ value: "figma", label: "Minimal" },
 ];
@@ -1072,15 +873,23 @@ function CursorStylePreview({
 			? (previewUrls.macos ?? tahoeCursorUrl)
 			: style === "tahoe"
 				? (previewUrls.tahoe ?? tahoeCursorUrl)
-				: style === "figma"
-					? (previewUrls.figma ?? minimalCursorUrl)
-					: style === "tahoe-inverted"
-						? (previewUrls["tahoe-inverted"] ?? tahoeCursorUrl)
-						: previewUrls[style];
+				: style === "windows11"
+					? (previewUrls.windows11 ?? tahoeCursorUrl)
+					: style === "figma"
+						? (previewUrls.figma ?? minimalCursorUrl)
+						: style === "tahoe-inverted"
+							? (previewUrls["tahoe-inverted"] ?? tahoeCursorUrl)
+							: previewUrls[style];
 
-	if (style === "macos" || style === "tahoe" || style === "tahoe-inverted") {
+	if (
+		style === "macos" ||
+		style === "tahoe" ||
+		style === "tahoe-inverted" ||
+		style === "windows11"
+	) {
 		const resolvedPreviewSize =
-			(previewSize ?? BUILTIN_CURSOR_PREVIEW_SIZE) * getCursorStyleSizeMultiplier(style);
+			(previewSize ?? BUILTIN_CURSOR_PREVIEW_SIZE) *
+			(style === "windows11" ? 1 : getCursorStyleSizeMultiplier(style));
 		return (
 			<div
 				className="flex items-center justify-center"
@@ -1193,8 +1002,6 @@ export function SettingsPanel({
 	onShadowChange,
 	backgroundBlur = 0,
 	onBackgroundBlurChange,
-	zoomMotionBlurTuning = DEFAULT_ZOOM_MOTION_BLUR_TUNING,
-	onZoomMotionBlurTuningChange,
 	connectZooms = true,
 	onConnectZoomsChange,
 	autoApplyFreshRecordingAutoZooms = true,
@@ -1227,8 +1034,6 @@ export function SettingsPanel({
 	onCameraSpringMassMultiplierChange,
 	zoomClassicMode = false,
 	onZoomClassicModeChange,
-	cursorMotionBlur = DEFAULT_CURSOR_MOTION_BLUR,
-	onCursorMotionBlurChange,
 	cursorClickEffect = DEFAULT_CURSOR_CLICK_EFFECT,
 	onCursorClickEffectChange,
 	cursorClickEffectColor = DEFAULT_CURSOR_CLICK_EFFECT_COLOR,
@@ -1245,7 +1050,7 @@ export function SettingsPanel({
 	onCursorClickBounceDurationChange,
 	cursorSway = DEFAULT_CURSOR_SWAY,
 	onCursorSwayChange,
-	borderRadius = 12.5,
+	borderRadius = getDefaultBorderRadiusPercent(),
 	onBorderRadiusChange,
 	webcam,
 	webcamPreviewSrc = null,
@@ -1256,8 +1061,6 @@ export function SettingsPanel({
 	onClearWebcam,
 	padding = DEFAULT_PADDING,
 	onPaddingChange,
-	frame = null,
-	onFrameChange,
 	cropRegion,
 	onCropChange,
 	aspectRatio,
@@ -1301,16 +1104,14 @@ export function SettingsPanel({
 	const initialEditorPreferences = useMemo(() => loadEditorPreferences(), []);
 	const [builtInWallpapers, setBuiltInWallpapers] =
 		useState<BuiltInWallpaper[]>(BUILT_IN_WALLPAPERS);
-	const [extensionWallpapers, setExtensionWallpapers] = useState<
-		ReturnType<typeof extensionHost.getContributedWallpapers>
-	>([]);
 	const [wallpaperPreviewPaths, setWallpaperPreviewPaths] = useState<string[]>([]);
-	const [extensionWallpaperPreviewUrls, setExtensionWallpaperPreviewUrls] = useState<
-		Record<string, string>
-	>({});
 	const [customImages, setCustomImages] = useState<string[]>(
 		initialEditorPreferences.customWallpapers,
 	);
+	const [experimentalUpdatesEnabled, setExperimentalUpdatesEnabled] = useState(false);
+	const [savingExperimentalUpdates, setSavingExperimentalUpdates] = useState(false);
+	const [internalActiveEffectSection] = useState<EditorEffectSection>("scene");
+	const activeEffectSection = activeEffectSectionProp ?? internalActiveEffectSection;
 	const removeBackgroundStateRef = useRef<{
 		aspectRatio: AspectRatio;
 		padding: Padding;
@@ -1319,10 +1120,6 @@ export function SettingsPanel({
 	const builtInWallpaperPaths = useMemo(
 		() => builtInWallpapers.map((wallpaper) => wallpaper.publicPath),
 		[builtInWallpapers],
-	);
-	const extensionWallpaperPaths = useMemo(
-		() => extensionWallpapers.map((wallpaper) => wallpaper.resolvedUrl),
-		[extensionWallpapers],
 	);
 	const captionCueCount = autoCaptions.length;
 	const updateAutoCaptionSettings = (partial: Partial<AutoCaptionSettings>) => {
@@ -1333,6 +1130,55 @@ export function SettingsPanel({
 	};
 
 	useEffect(() => {
+		let cancelled = false;
+		void window.electronAPI
+			.getExperimentalUpdatesEnabled()
+			.then((enabled) => {
+				if (!cancelled) setExperimentalUpdatesEnabled(enabled);
+			})
+			.catch((error) => {
+				console.error("Failed to load experimental updates preference:", error);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const updateExperimentalUpdatesPreference = async (enabled: boolean) => {
+		const previousValue = experimentalUpdatesEnabled;
+		setExperimentalUpdatesEnabled(enabled);
+		setSavingExperimentalUpdates(true);
+		try {
+			const result = await window.electronAPI.setExperimentalUpdatesEnabled(enabled);
+			setExperimentalUpdatesEnabled(result.enabled);
+			if (!result.success) {
+				toast.error(
+					result.error ||
+						tSettings("updates.saveFailed", "Failed to change the update channel."),
+				);
+			}
+		} catch (error) {
+			setExperimentalUpdatesEnabled(previousValue);
+			toast.error(
+				`${tSettings("updates.saveFailed", "Failed to change the update channel.")} ${String(error)}`,
+			);
+		} finally {
+			setSavingExperimentalUpdates(false);
+		}
+	};
+
+	useEffect(() => {
+		if (
+			!isBackgroundPanel &&
+			activeEffectSection !== "scene" &&
+			activeEffectSection !== "frame" &&
+			activeEffectSection !== "crop" &&
+			activeEffectSection !== "extensions" &&
+			!activeEffectSection.startsWith("ext:")
+		) {
+			return;
+		}
+
 		let mounted = true;
 		(async () => {
 			try {
@@ -1363,59 +1209,8 @@ export function SettingsPanel({
 		return () => {
 			mounted = false;
 		};
-	}, []);
+	}, [activeEffectSection, isBackgroundPanel]);
 
-	useEffect(() => {
-		let cancelled = false;
-
-		const updateExtensionAssets = async () => {
-			const wallpapers = extensionHost.getContributedWallpapers();
-			const cursorStyles = extensionHost.getContributedCursorStyles();
-			const [wallpaperPreviewEntries, cursorPreviewEntries] = await Promise.all([
-				Promise.all(
-					wallpapers.map(
-						async (wallpaper) =>
-							[
-								wallpaper.id,
-								isVideoWallpaperSource(wallpaper.resolvedThumbnailUrl)
-									? wallpaper.resolvedThumbnailUrl
-									: await getWallpaperThumbnailUrl(
-											wallpaper.resolvedThumbnailUrl,
-										),
-							] as const,
-					),
-				),
-				Promise.all(
-					cursorStyles.map(
-						async (cursorStyle) =>
-							[
-								cursorStyle.id,
-								await getRenderableAssetUrl(cursorStyle.resolvedDefaultUrl),
-							] as const,
-					),
-				),
-			]);
-
-			if (cancelled) {
-				return;
-			}
-
-			setExtensionWallpapers(wallpapers);
-			setExtensionWallpaperPreviewUrls(Object.fromEntries(wallpaperPreviewEntries));
-			setExtensionCursorStyles(cursorStyles);
-			setExtensionCursorPreviewUrls(Object.fromEntries(cursorPreviewEntries));
-		};
-
-		void extensionHost.autoActivateBuiltins().then(updateExtensionAssets);
-		const unsubscribe = extensionHost.onChange(() => {
-			void updateExtensionAssets();
-		});
-
-		return () => {
-			cancelled = true;
-			unsubscribe();
-		};
-	}, []);
 	const colorPalette = [
 		"#FF0000",
 		"#FFD700",
@@ -1443,72 +1238,19 @@ export function SettingsPanel({
 	);
 	const removeBackgroundEnabled = aspectRatio === "native" && isZeroPadding(padding);
 
-	// Device frames from extension system
-	const [availableFrames, setAvailableFrames] = useState<FrameInstance[]>([]);
-	useEffect(() => {
-		const update = () => setAvailableFrames(extensionHost.getFrames());
-		update();
-		return extensionHost.onChange(update);
-	}, []);
-
-	// Extension-contributed settings panels
-	const [extensionPanels, setExtensionPanels] = useState<
-		ReturnType<typeof extensionHost.getSettingsPanels>
-	>([]);
-	useEffect(() => {
-		const update = () => setExtensionPanels(extensionHost.getSettingsPanels());
-		update();
-		return extensionHost.onChange(update);
-	}, []);
-
-	const renderExtensionPanelsForSections = (...sections: string[]) =>
-		extensionPanels
-			.filter((panel) => {
-				const parentSection = panel.panel.parentSection;
-				return parentSection ? sections.includes(parentSection) : false;
-			})
-			.map((panel) => (
-				<ExtensionSettingsSection
-					key={`${panel.extensionId}/${panel.panel.id}`}
-					extensionId={panel.extensionId}
-					label={panel.panel.label}
-					fields={panel.panel.fields}
-				/>
-			));
-
 	const [backgroundTab, setBackgroundTab] = useState<BackgroundTab>(() =>
 		getBackgroundTabForWallpaper(selected),
 	);
 	const customColorInputRef = useRef<HTMLInputElement | null>(null);
 	const cursorClickEffectColorInputRef = useRef<HTMLInputElement | null>(null);
 	const defaultWebcam = initialEditorPreferences.webcam;
-	const [internalActiveEffectSection] = useState<EditorEffectSection>("scene");
-	const activeEffectSection = activeEffectSectionProp ?? internalActiveEffectSection;
-	const [extensionCursorStyles, setExtensionCursorStyles] = useState<
-		ReturnType<typeof extensionHost.getContributedCursorStyles>
-	>([]);
 	const [builtInCursorPreviewUrls, setBuiltInCursorPreviewUrls] = useState<
 		Partial<Record<string, string>>
 	>({});
-	const [extensionCursorPreviewUrls, setExtensionCursorPreviewUrls] = useState<
-		Partial<Record<string, string>>
-	>({});
 	const [showCursorClickEffectAdvanced, setShowCursorClickEffectAdvanced] = useState(false);
-	const cursorPreviewUrls = useMemo(
-		() => ({ ...builtInCursorPreviewUrls, ...extensionCursorPreviewUrls }),
-		[builtInCursorPreviewUrls, extensionCursorPreviewUrls],
-	);
+	const cursorPreviewUrls = builtInCursorPreviewUrls;
 	const showDevMotionControls = import.meta.env.DEV;
-	const cursorStyleOptions = useMemo<CursorStyleOption[]>(
-		() => [
-			...BUILTIN_CURSOR_STYLE_OPTIONS,
-			...extensionCursorStyles.map((cursorStyle) => ({
-				value: cursorStyle.id as CursorStyle,
-				label: cursorStyle.cursorStyle.label,
-			})),
-		],
-		[extensionCursorStyles],
-	);
+	const cursorStyleOptions = BUILTIN_CURSOR_STYLE_OPTIONS;
 
 	useEffect(() => {
 		let cancelled = false;
@@ -1517,13 +1259,17 @@ export function SettingsPanel({
 			try {
 				const macosPreview = cursorSetAssets.macos.arrow.url;
 				const tahoePreview = cursorSetAssets.tahoe.arrow.url;
-				const minimalPreview = await createTrimmedSvgPreview(minimalCursorUrl, 512);
+				const [windows11Preview, minimalPreview] = await Promise.all([
+					createTrimmedSvgPreview(cursorSetAssets.windows11.arrow.url, 512),
+					createTrimmedSvgPreview(minimalCursorUrl, 512),
+				]);
 				const invertedPreview = await createInvertedPreview(tahoePreview);
 
 				if (!cancelled) {
 					setBuiltInCursorPreviewUrls({
 						macos: macosPreview,
 						tahoe: tahoePreview,
+						windows11: windows11Preview,
 						figma: minimalPreview,
 						"tahoe-inverted": invertedPreview,
 					});
@@ -1533,6 +1279,7 @@ export function SettingsPanel({
 					setBuiltInCursorPreviewUrls({
 						macos: tahoeCursorUrl,
 						tahoe: tahoeCursorUrl,
+						windows11: tahoeCursorUrl,
 						figma: minimalCursorUrl,
 						"tahoe-inverted": tahoeCursorUrl,
 					});
@@ -1564,14 +1311,12 @@ export function SettingsPanel({
 		}
 
 		const isKnownWallpaper =
-			builtInWallpaperPaths.includes(selected) ||
-			wallpaperPreviewPaths.includes(selected) ||
-			extensionWallpaperPaths.includes(selected);
+			builtInWallpaperPaths.includes(selected) || wallpaperPreviewPaths.includes(selected);
 
 		if (!isKnownWallpaper && isVideoWallpaperSource(selected)) {
 			setCustomImages((prev) => (prev.includes(selected) ? prev : [selected, ...prev]));
 		}
-	}, [builtInWallpaperPaths, extensionWallpaperPaths, selected, wallpaperPreviewPaths]);
+	}, [builtInWallpaperPaths, selected, wallpaperPreviewPaths]);
 
 	const imageWallpaperTiles = useMemo<WallpaperTile[]>(() => {
 		const imageWallpapers = builtInWallpapers.filter(
@@ -1591,24 +1336,8 @@ export function SettingsPanel({
 				};
 			});
 
-		const extensionTiles = extensionWallpapers
-			.filter((wallpaper) => !isVideoWallpaperSource(wallpaper.resolvedUrl))
-			.map((wallpaper) => ({
-				key: wallpaper.id,
-				label: wallpaper.wallpaper.label,
-				value: wallpaper.resolvedUrl,
-				previewUrl:
-					extensionWallpaperPreviewUrls[wallpaper.id] ?? wallpaper.resolvedThumbnailUrl,
-			}));
-
-		return [...builtInTiles, ...extensionTiles];
-	}, [
-		builtInWallpaperPaths,
-		builtInWallpapers,
-		extensionWallpaperPreviewUrls,
-		extensionWallpapers,
-		wallpaperPreviewPaths,
-	]);
+		return builtInTiles;
+	}, [builtInWallpaperPaths, builtInWallpapers, wallpaperPreviewPaths]);
 
 	const videoWallpaperTiles = useMemo<WallpaperTile[]>(() => {
 		const builtInTiles = builtInWallpapers
@@ -1620,18 +1349,8 @@ export function SettingsPanel({
 				previewUrl: wallpaper.publicPath,
 			}));
 
-		const extensionTiles = extensionWallpapers
-			.filter((wallpaper) => isVideoWallpaperSource(wallpaper.resolvedUrl))
-			.map((wallpaper) => ({
-				key: wallpaper.id,
-				label: wallpaper.wallpaper.label,
-				value: wallpaper.resolvedUrl,
-				previewUrl:
-					extensionWallpaperPreviewUrls[wallpaper.id] ?? wallpaper.resolvedThumbnailUrl,
-			}));
-
-		return [...builtInTiles, ...extensionTiles];
-	}, [builtInWallpapers, extensionWallpaperPreviewUrls, extensionWallpapers]);
+		return builtInTiles;
+	}, [builtInWallpapers]);
 
 	useEffect(() => {
 		saveEditorPreferences({ customWallpapers: customImages });
@@ -1819,7 +1538,6 @@ export function SettingsPanel({
 		const preferredWallpaper = initialEditorPreferences.wallpaper;
 		const hasPreferredWallpaper =
 			(preferredWallpaper && builtInWallpaperPaths.includes(preferredWallpaper)) ||
-			(preferredWallpaper && extensionWallpaperPaths.includes(preferredWallpaper)) ||
 			(preferredWallpaper && customImages.includes(preferredWallpaper)) ||
 			(preferredWallpaper && isHexWallpaper(preferredWallpaper)) ||
 			(preferredWallpaper && GRADIENTS.includes(preferredWallpaper));
@@ -1827,14 +1545,12 @@ export function SettingsPanel({
 		onWallpaperChange(
 			(hasPreferredWallpaper ? preferredWallpaper : "") ||
 				builtInWallpaperPaths[0] ||
-				extensionWallpaperPaths[0] ||
 				BUILT_IN_WALLPAPERS[0]?.publicPath ||
 				"",
 		);
 	};
 
 	const resetZoomSection = () => {
-		onZoomMotionBlurTuningChange?.(initialEditorPreferences.zoomMotionBlurTuning);
 		onCameraSpringStiffnessMultiplierChange?.(
 			initialEditorPreferences.cameraSpringStiffnessMultiplier,
 		);
@@ -1860,7 +1576,6 @@ export function SettingsPanel({
 			initialEditorPreferences.cursorSpringDampingMultiplier,
 		);
 		onCursorSpringMassMultiplierChange?.(initialEditorPreferences.cursorSpringMassMultiplier);
-		onCursorMotionBlurChange?.(initialEditorPreferences.cursorMotionBlur);
 		onCursorClickEffectChange?.(initialEditorPreferences.cursorClickEffect);
 		onCursorClickEffectColorChange?.(initialEditorPreferences.cursorClickEffectColor);
 		onCursorClickEffectScaleChange?.(initialEditorPreferences.cursorClickEffectScale);
@@ -1881,7 +1596,6 @@ export function SettingsPanel({
 				cursorSpringStiffnessMultiplier,
 				cursorSpringDampingMultiplier,
 				cursorSpringMassMultiplier,
-				cursorMotionBlur,
 				cursorClickBounce,
 				cursorClickBounceDuration,
 			}) ?? "focused"
@@ -1889,7 +1603,6 @@ export function SettingsPanel({
 	}, [
 		cursorClickBounce,
 		cursorClickBounceDuration,
-		cursorMotionBlur,
 		cursorSize,
 		cursorSmoothing,
 		cursorSpringDampingMultiplier,
@@ -1908,23 +1621,15 @@ export function SettingsPanel({
 		onCursorSpringStiffnessMultiplierChange?.(preset.cursorSpringStiffnessMultiplier);
 		onCursorSpringDampingMultiplierChange?.(preset.cursorSpringDampingMultiplier);
 		onCursorSpringMassMultiplierChange?.(preset.cursorSpringMassMultiplier);
-		onCursorMotionBlurChange?.(preset.cursorMotionBlur);
 		onCursorClickBounceChange?.(preset.cursorClickBounce);
 		onCursorClickBounceDurationChange?.(preset.cursorClickBounceDuration);
 	};
 
 	const resetFrameSection = () => {
-		const preferredFrame = initialEditorPreferences.frame;
-		const resolvedFrame = preferredFrame
-			? availableFrames.some((candidate) => candidate.id === preferredFrame)
-				? preferredFrame
-				: null
-			: null;
 		onShadowChange?.(initialEditorPreferences.shadowIntensity);
 		onBorderRadiusChange?.(initialEditorPreferences.borderRadius);
 		onAspectRatioChange?.(initialEditorPreferences.aspectRatio);
 		onPaddingChange?.({ ...initialEditorPreferences.padding });
-		onFrameChange?.(resolvedFrame);
 		removeBackgroundStateRef.current = null;
 	};
 
@@ -2021,12 +1726,7 @@ export function SettingsPanel({
 		setCustomImages((prev) => prev.filter((img) => img !== imageUrl));
 		// If the removed image was selected, clear selection
 		if (selected === imageUrl) {
-			onWallpaperChange(
-				builtInWallpaperPaths[0] ??
-					extensionWallpaperPaths[0] ??
-					BUILT_IN_WALLPAPERS[0]?.publicPath ??
-					"",
-			);
+			onWallpaperChange(builtInWallpaperPaths[0] ?? BUILT_IN_WALLPAPERS[0]?.publicPath ?? "");
 		}
 	};
 
@@ -2410,11 +2110,11 @@ export function SettingsPanel({
 					value={borderRadius}
 					defaultValue={initialEditorPreferences.borderRadius}
 					min={0}
-					max={200}
-					step={0.5}
+					max={50}
+					step={0.1}
 					onChange={(v) => onBorderRadiusChange?.(v)}
-					formatValue={(v) => `${v}px`}
-					parseInput={(text) => parseFloat(text.replace(/px$/, ""))}
+					formatValue={(v) => `${v}%`}
+					parseInput={(text) => parseFloat(text.replace(/%$/, ""))}
 				/>
 				<div className="flex flex-col gap-1.5 pt-0.5">
 					<div className="flex items-center justify-between">
@@ -2511,53 +2211,6 @@ export function SettingsPanel({
 						className="data-[state=checked]:bg-[#2563EB] scale-75"
 					/>
 				</div>
-				{/* Frame Picker */}
-				{availableFrames.length > 0 && (
-					<div className="flex flex-col gap-1.5 mt-1">
-						<div className="flex items-center justify-between">
-							<span className="text-[10px] text-muted-foreground">Frame</span>
-							{frame && (
-								<button
-									type="button"
-									onClick={() => onFrameChange?.(null)}
-									className="text-[9px] text-[#2563EB] hover:opacity-80"
-								>
-									Remove
-								</button>
-							)}
-						</div>
-						<div className="grid grid-cols-3 gap-1.5">
-							{availableFrames.map((f) => {
-								const isSelected = frame === f.id;
-								return (
-									<button
-										key={f.id}
-										type="button"
-										onClick={() => onFrameChange?.(isSelected ? null : f.id)}
-										className={cn(
-											"flex flex-col items-center gap-1 p-1.5 rounded-lg border transition-all text-center",
-											isSelected
-												? "border-[#2563EB]/50 bg-[#2563EB]/10 ring-1 ring-[#2563EB]/30"
-												: "border-foreground/[0.06] bg-white/[0.02] hover:bg-foreground/[0.05]",
-										)}
-									>
-										<div className="w-full aspect-video rounded bg-foreground/10 overflow-hidden flex items-center justify-center">
-											<img
-												src={f.thumbnailPath}
-												alt={f.label}
-												className="w-full h-full object-contain"
-												draggable={false}
-											/>
-										</div>
-										<span className="text-[8px] text-muted-foreground truncate w-full leading-tight">
-											{f.label}
-										</span>
-									</button>
-								);
-							})}
-						</div>
-					</div>
-				)}
 			</div>
 		</section>
 	);
@@ -2879,7 +2532,6 @@ export function SettingsPanel({
 					formatValue={(value) => `${Math.round(value * 100)}%`}
 					parseInput={(text) => parseFloat(text.replace(/%$/, "")) / 100}
 				/>
-				{renderExtensionPanelsForSections("captions")}
 			</div>
 		</section>
 	);
@@ -2928,6 +2580,32 @@ export function SettingsPanel({
 							))}
 						</SelectContent>
 					</Select>
+				</section>
+
+				<section className="flex flex-col gap-2">
+					<SectionLabel>{tSettings("updates.title", "Updates")}</SectionLabel>
+					<div className="flex items-center justify-between gap-3 rounded-lg bg-foreground/[0.03] px-2.5 py-2">
+						<div>
+							<div className="text-[11px] font-medium text-foreground">
+								{tSettings("updates.experimental", "Experimental updates")}
+							</div>
+							<div className="mt-0.5 text-[10px] text-muted-foreground/70">
+								{tSettings(
+									"updates.experimentalDescription",
+									"This is the front line of user testing - highly experimental so expect bugs",
+								)}
+							</div>
+						</div>
+						<Switch
+							checked={experimentalUpdatesEnabled}
+							disabled={savingExperimentalUpdates}
+							onCheckedChange={(enabled) =>
+								void updateExperimentalUpdatesPreference(enabled)
+							}
+							aria-label={tSettings("updates.experimental", "Experimental updates")}
+							className="data-[state=checked]:bg-[#2563EB] scale-75"
+						/>
+					</div>
 				</section>
 
 				<section className="flex flex-col gap-1.5">
@@ -3039,104 +2717,6 @@ export function SettingsPanel({
 									{tSettings("effects.openNativeCaptureWarning", "Open warning")}
 								</Button>
 							</div>
-						</div>
-
-						<div className="space-y-1.5 rounded-lg border border-foreground/10 bg-background/60 px-3 py-3">
-							<div>
-								<div className="text-[11px] font-medium text-foreground">
-									{tSettings("effects.motionBlurDebug", "Motion Blur Debug")}
-								</div>
-								<div className="mt-0.5 text-[10px] text-muted-foreground">
-									{tSettings(
-										"effects.motionBlurDebugHint",
-										"Development-only tuning for the split move-vs-zoom blur path. Pan controls drive the streak filter, and zoom controls drive the focus-centered zoom filter.",
-									)}
-								</div>
-							</div>
-							<SliderControl
-								label={tSettings("effects.motionBlurPanThreshold", "Pan threshold")}
-								value={zoomMotionBlurTuning.panVelocityThreshold}
-								defaultValue={
-									initialEditorPreferences.zoomMotionBlurTuning
-										.panVelocityThreshold
-								}
-								min={0}
-								max={240}
-								step={1}
-								onChange={(value) =>
-									onZoomMotionBlurTuningChange?.({
-										...zoomMotionBlurTuning,
-										panVelocityThreshold: value,
-									})
-								}
-								formatValue={(value) => `${Math.round(value)} px/s`}
-								parseInput={(text) =>
-									parseFloat(text.replace(/px\/s$/i, "").trim())
-								}
-							/>
-							<SliderControl
-								label={tSettings("effects.motionBlurPanStrength", "Pan max blur")}
-								value={zoomMotionBlurTuning.maxDirectionalBlurPx}
-								defaultValue={
-									initialEditorPreferences.zoomMotionBlurTuning
-										.maxDirectionalBlurPx
-								}
-								min={0}
-								max={96}
-								step={0.1}
-								onChange={(value) =>
-									onZoomMotionBlurTuningChange?.({
-										...zoomMotionBlurTuning,
-										maxDirectionalBlurPx: value,
-									})
-								}
-								formatValue={(value) => `${value.toFixed(1)} px`}
-								parseInput={(text) => parseFloat(text.replace(/px$/i, "").trim())}
-							/>
-							<SliderControl
-								label={tSettings(
-									"effects.motionBlurZoomThreshold",
-									"Zoom threshold",
-								)}
-								value={zoomMotionBlurTuning.zoomVelocityThreshold}
-								defaultValue={
-									initialEditorPreferences.zoomMotionBlurTuning
-										.zoomVelocityThreshold
-								}
-								min={0}
-								max={0.4}
-								step={0.005}
-								onChange={(value) =>
-									onZoomMotionBlurTuningChange?.({
-										...zoomMotionBlurTuning,
-										zoomVelocityThreshold: value,
-									})
-								}
-								formatValue={(value) => value.toFixed(3)}
-								parseInput={(text) => parseFloat(text)}
-							/>
-							<SliderControl
-								label={tSettings(
-									"effects.motionBlurZoomStrength",
-									"Zoom blur strength",
-								)}
-								value={zoomMotionBlurTuning.maxRadialBlurStrength}
-								defaultValue={
-									initialEditorPreferences.zoomMotionBlurTuning
-										.maxRadialBlurStrength
-								}
-								min={0}
-								max={1.5}
-								step={0.005}
-								onChange={(value) =>
-									onZoomMotionBlurTuningChange?.({
-										...zoomMotionBlurTuning,
-										maxRadialBlurStrength: value,
-									})
-								}
-								formatValue={(value) => value.toFixed(3)}
-								parseInput={(text) => parseFloat(text)}
-							/>
 						</div>
 
 						<div className="space-y-1.5 rounded-lg border border-foreground/10 bg-background/60 px-3 py-3">
@@ -3272,7 +2852,6 @@ export function SettingsPanel({
 				{backgroundSettingsContent}
 				{frameSectionContent}
 				{cropSectionContent}
-				{renderExtensionPanelsForSections("scene", "appearance", "frame", "crop")}
 			</div>
 		);
 
@@ -3384,19 +2963,6 @@ export function SettingsPanel({
 						)}
 					</div>
 				)}
-				{showDevMotionControls ? (
-					<div className="rounded-lg border border-foreground/10 bg-foreground/[0.03] px-3 py-2">
-						<div className="text-[10px] text-muted-foreground">
-							{tSettings(
-								"effects.exportBlurMovedToDev",
-								"Export blur tuning is available in Settings > Dev.",
-							)}
-						</div>
-						<div className="mt-1 text-[12px] font-medium text-foreground">
-							{`${TEMPORAL_MOTION_BLUR_DEFAULT_SAMPLE_COUNT} samples · ${Math.round(TEMPORAL_MOTION_BLUR_DEFAULT_SHUTTER_FRACTION * 100)}% shutter`}
-						</div>
-					</div>
-				) : null}
 				{selectedZoomId && (
 					<Button
 						onClick={() => {
@@ -3410,7 +2976,6 @@ export function SettingsPanel({
 						{tSettings("zoom.deleteZoom")}
 					</Button>
 				)}
-				{renderExtensionPanelsForSections("zoom", "appearance", "frame", "crop")}
 			</section>
 		);
 
@@ -3736,17 +3301,6 @@ export function SettingsPanel({
 								formatValue={(v) => `${v.toFixed(2)}×`}
 								parseInput={(text) => parseFloat(text.replace(/×$/, ""))}
 							/>
-							<SliderControl
-								label={tSettings("effects.cursorMotionBlur")}
-								value={cursorMotionBlur}
-								defaultValue={DEFAULT_CURSOR_MOTION_BLUR}
-								min={0}
-								max={2}
-								step={0.05}
-								onChange={(v) => onCursorMotionBlurChange?.(v)}
-								formatValue={(v) => `${v.toFixed(2)}×`}
-								parseInput={(text) => parseFloat(text.replace(/×$/, ""))}
-							/>
 							<CursorClickEffectCards
 								title={tSettings(
 									"effects.cursorClickEffects.title",
@@ -3920,7 +3474,6 @@ export function SettingsPanel({
 								</div>
 							) : null}
 						</div>
-						{renderExtensionPanelsForSections("cursor")}
 					</section>
 				);
 			case "webcam":
@@ -4120,14 +3673,14 @@ export function SettingsPanel({
 							/>
 							<SliderControl
 								label={tSettings("effects.webcamRoundness")}
-								value={webcam?.cornerRadius ?? DEFAULT_WEBCAM_CORNER_RADIUS}
-								defaultValue={DEFAULT_WEBCAM_CORNER_RADIUS}
+								value={webcam?.roundness ?? DEFAULT_WEBCAM_ROUNDNESS}
+								defaultValue={DEFAULT_WEBCAM_ROUNDNESS}
 								min={0}
-								max={160}
+								max={100}
 								step={1}
-								onChange={(v) => updateWebcam({ cornerRadius: v })}
-								formatValue={(v) => `${Math.round(v)}px`}
-								parseInput={(text) => parseFloat(text.replace(/px$/, ""))}
+								onChange={(v) => updateWebcam({ roundness: v })}
+								formatValue={(v) => `${Math.round(v)}%`}
+								parseInput={(text) => parseFloat(text.replace(/%$/, ""))}
 							/>
 							<SliderControl
 								label={tSettings("effects.webcamShadow")}
@@ -4181,32 +3734,10 @@ export function SettingsPanel({
 									</div>
 								</div>
 							</div>
-							{renderExtensionPanelsForSections("webcam")}
 						</div>
 					</section>
 				);
 			default: {
-				// Handle extension-contributed standalone section pages (ext:extensionId/panelId)
-				if (activeEffectSection?.startsWith("ext:")) {
-					const panels = extensionPanels.filter(
-						(p) =>
-							!p.panel.parentSection &&
-							`ext:${p.extensionId}/${p.panel.id}` === activeEffectSection,
-					);
-					if (panels.length > 0) {
-						const p = panels[0];
-						return (
-							<section className="flex flex-col gap-2">
-								<SectionLabel>{p.panel.label}</SectionLabel>
-								<ExtensionSettingsSection
-									extensionId={p.extensionId}
-									label={p.panel.label}
-									fields={p.panel.fields}
-								/>
-							</section>
-						);
-					}
-				}
 				return sceneSectionContent;
 			}
 		}

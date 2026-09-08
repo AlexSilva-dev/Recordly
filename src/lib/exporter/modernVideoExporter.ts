@@ -17,7 +17,7 @@ import type {
 	ZoomRegion,
 	ZoomTransitionEasing,
 } from "@/components/video-editor/types";
-import { ZOOM_DEPTH_SCALES } from "@/components/video-editor/types";
+import { DEFAULT_WEBCAM_ROUNDNESS, ZOOM_DEPTH_SCALES } from "@/components/video-editor/types";
 import { DEFAULT_FOCUS } from "@/components/video-editor/videoPlayback/constants";
 import {
 	computeCursorFollowFocus,
@@ -25,6 +25,7 @@ import {
 	SNAP_TO_EDGES_RATIO_AUTO,
 } from "@/components/video-editor/videoPlayback/cursorFollowCamera";
 import { buildNativeCursorAtlas } from "@/components/video-editor/videoPlayback/cursorRenderer";
+import { getCursorViewportScale } from "@/components/video-editor/videoPlayback/cursorScale";
 import {
 	computePaddedLayout,
 	scalePreviewBorderRadius,
@@ -39,11 +40,11 @@ import { getCursorStyleSizeMultiplier } from "@/components/video-editor/videoPla
 import { findDominantRegion } from "@/components/video-editor/videoPlayback/zoomRegionUtils";
 import { computeZoomTransform } from "@/components/video-editor/videoPlayback/zoomTransform";
 import {
+	getWebcamCornerRadiusPx,
 	getWebcamOverlayPosition,
 	getWebcamOverlaySizePx,
 	isWebcamCropRegionDefault,
 } from "@/components/video-editor/webcamOverlay";
-import { extensionHost } from "@/lib/extensions";
 import { getEffectiveVideoStreamDurationSeconds } from "@/lib/mediaTiming";
 import {
 	DEFAULT_WALLPAPER_PATH,
@@ -80,6 +81,7 @@ import {
 import { VideoMuxer } from "./muxer";
 import { roundNativeStaticLayoutContentSize } from "./nativeStaticLayoutGeometry";
 import { buildNativeStaticLayoutCursorTelemetry } from "./nativeStaticLayoutTelemetry";
+import { getWebcamShadowStrength } from "./shadowProfile";
 import { resolveSourceAudioFallbackPaths } from "./sourceAudioFallback";
 import { type DecodedVideoInfo, StreamingVideoDecoder } from "./streamingDecoder";
 import type {
@@ -92,6 +94,7 @@ import type {
 	ExportRenderBackend,
 	ExportResult,
 } from "./types";
+import { ENCODED_H264_COLOR_SPACE_FALLBACK, EXPORT_CANVAS_COLOR_SPACE } from "./videoColorSpace";
 
 interface VideoExporterConfig extends ExportConfig {
 	videoUrl: string;
@@ -147,7 +150,6 @@ interface VideoExporterConfig extends ExportConfig {
 	cursorSway?: number;
 	zoomSmoothness?: number;
 	zoomClassicMode?: boolean;
-	frame?: string | null;
 	audioRegions?: AudioRegion[];
 	clipRegions?: ClipRegion[];
 	sourceAudioFallbackPaths?: string[];
@@ -641,7 +643,6 @@ export class ModernVideoExporter {
 					cursorSway: this.config.cursorSway,
 					zoomSmoothness: this.config.zoomSmoothness,
 					zoomClassicMode: this.config.zoomClassicMode,
-					frame: this.config.frame,
 				});
 				await this.renderer.initialize();
 				this.rendererInitTimeMs = this.getNowMs() - stageStartedAt;
@@ -718,10 +719,6 @@ export class ModernVideoExporter {
 						frameIndex++;
 						this.processedFrameCount = frameIndex;
 						this.reportProgress(frameIndex, totalFrames, "extracting");
-						extensionHost.emitEvent({
-							type: "export:frame",
-							data: { frameIndex, totalFrames },
-						});
 					},
 				);
 				this.decodeLoopTimeMs = this.getNowMs() - decodeLoopStartedAt;
@@ -1566,16 +1563,17 @@ export class ModernVideoExporter {
 		if ((this.config.autoCaptions ?? []).length > 0) {
 			reasons.push("unsupported-caption-overlay");
 		}
+		if (this.config.webcam?.enabled) {
+			// Native GPU compositors use a different corner and shadow model.
+			// Keep webcam exports on the shared renderer used by preview.
+			reasons.push("native-webcam-style-mismatch");
+		}
 
 		if (this.config.webcam?.enabled && !this.getNativeWebcamSourcePath()) {
 			reasons.push("unsupported-webcam-source");
 		}
 		if (this.hasUnsupportedNativeStaticLayoutWebcamShape()) {
 			reasons.push("unsupported-rectangular-webcam-overlay");
-		}
-
-		if (this.config.frame) {
-			reasons.push("unsupported-frame-overlay");
 		}
 
 		const crop = this.config.cropRegion;
@@ -2056,8 +2054,12 @@ export class ModernVideoExporter {
 			left: Math.round(position.x),
 			top: Math.round(position.y),
 			size,
-			radius: Math.max(0, webcam.cornerRadius ?? 18),
-			shadowIntensity: Math.min(1, Math.max(0, webcam.shadow ?? 0)),
+			radius: getWebcamCornerRadiusPx(
+				webcam.roundness ?? DEFAULT_WEBCAM_ROUNDNESS,
+				size,
+				size,
+			),
+			shadowIntensity: getWebcamShadowStrength(webcam.shadow ?? 0),
 			mirror: webcam.mirror !== false,
 			timeOffsetMs: Number.isFinite(webcam.timeOffsetMs) ? webcam.timeOffsetMs : 0,
 		};
@@ -2089,7 +2091,7 @@ export class ModernVideoExporter {
 
 	private getNativeStaticLayoutCursorSize(contentWidth: number) {
 		const cursorStyle = this.config.cursorStyle ?? "tahoe";
-		const viewportScale = Math.max(0.55, contentWidth / 1920);
+		const viewportScale = getCursorViewportScale(contentWidth);
 		return (
 			28 *
 			(this.config.cursorSize ?? 3) *
@@ -2247,7 +2249,6 @@ export class ModernVideoExporter {
 				speedRegions: this.config.speedRegions?.length ?? 0,
 				audioRegions: this.config.audioRegions?.length ?? 0,
 				annotationRegions: this.config.annotationRegions?.length ?? 0,
-				hasFrame: Boolean(this.config.frame),
 				backgroundBlur: this.config.backgroundBlur,
 				hasCursorOverlay:
 					this.config.showCursor === true &&
@@ -2306,8 +2307,8 @@ export class ModernVideoExporter {
 			? null
 			: this.getNativeStaticLayoutSourceCrop(videoInfo);
 		const borderRadius = scalePreviewBorderRadius(
-			this.config.width,
-			this.config.height,
+			contentWidth,
+			contentHeight,
 			this.config.borderRadius ?? 0,
 		);
 		const shadowIntensity = this.config.showShadow
@@ -2725,9 +2726,11 @@ export class ModernVideoExporter {
 			if (this.nativeEncoderError) throw this.nativeEncoderError;
 		}
 		const canvas = this.renderer!.getCanvas();
+		// @ts-expect-error - colorSpace is supported at runtime but missing from this DOM typing.
 		const frame = new VideoFrame(canvas, {
 			timestamp,
 			duration: frameDuration,
+			colorSpace: EXPORT_CANVAS_COLOR_SPACE,
 		});
 		this.nativeH264Encoder.encode(frame, { keyFrame: frameIndex % 300 === 0 });
 		frame.close();
@@ -2956,12 +2959,7 @@ export class ModernVideoExporter {
 		const exportFrame = new VideoFrame(canvas, {
 			timestamp,
 			duration: frameDuration,
-			colorSpace: {
-				primaries: "bt709",
-				transfer: "iec61966-2-1",
-				matrix: "rgb",
-				fullRange: true,
-			},
+			colorSpace: EXPORT_CANVAS_COLOR_SPACE,
 		});
 
 		while (
@@ -3376,12 +3374,8 @@ export class ModernVideoExporter {
 					try {
 						if (isFirstChunk && this.videoDescription) {
 							// Add decoder config for the first chunk
-							const colorSpace = this.videoColorSpace || {
-								primaries: "bt709",
-								transfer: "iec61966-2-1",
-								matrix: "rgb",
-								fullRange: true,
-							};
+							const colorSpace =
+								this.videoColorSpace || ENCODED_H264_COLOR_SPACE_FALLBACK;
 
 							const metadata: EncodedVideoChunkMetadata = {
 								decoderConfig: {
