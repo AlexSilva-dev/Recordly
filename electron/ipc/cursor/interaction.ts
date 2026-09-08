@@ -253,6 +253,24 @@ export async function startInteractionCapture() {
 
 	stopInteractionCapture();
 
+	const onMouseDown = (event: HookMouseEvent) => {
+		recordCursorMouseDown(getHookMouseButton(event));
+	};
+
+	const onMouseUp = () => {
+		recordCursorMouseUp();
+	};
+
+	// Raw evdev clicks (Wayland: the uiohook never sees them) — must start
+	// independently of the uiohook, which can fail to load on Wayland.
+	const stopEvdevCapture = startEvdevButtonCapture({
+		onMouseDown: (button) => onMouseDown({ button } as unknown as HookMouseEvent),
+		onMouseUp: () => onMouseUp(),
+	});
+	setInteractionCaptureCleanup(() => {
+		stopEvdevCapture();
+	});
+
 	try {
 		const hook = loadUiohookModule();
 		console.log(
@@ -264,21 +282,15 @@ export async function startInteractionCapture() {
 			typeof hook?.start,
 		);
 		if (!isCursorCaptureActive) {
+			stopEvdevCapture();
 			return;
 		}
 
 		if (!hook || typeof hook.on !== "function" || typeof hook.start !== "function") {
 			console.log("[CursorTelemetry] hook unusable — aborting interaction capture");
+			stopEvdevCapture();
 			return;
 		}
-
-		const onMouseDown = (event: HookMouseEvent) => {
-			recordCursorMouseDown(getHookMouseButton(event));
-		};
-
-		const onMouseUp = () => {
-			recordCursorMouseUp();
-		};
 
 		const onMouseMove = (event: HookMouseEvent) => {
 			if (
@@ -310,12 +322,6 @@ export async function startInteractionCapture() {
 			hook.on("mousemove", onMouseMove);
 		}
 
-		// Raw evdev clicks (Wayland: the uiohook never sees them) — handlers
-		// above read the cursor position from the Hyprland provider state.
-		const stopEvdevCapture = startEvdevButtonCapture({
-			onMouseDown: (button) => onMouseDown({ button } as unknown as HookMouseEvent),
-			onMouseUp: () => onMouseUp(),
-		});
 		setInteractionCaptureCleanup(() => {
 			stopEvdevCapture();
 			try {
@@ -347,6 +353,7 @@ export async function startInteractionCapture() {
 
 		hook.start();
 	} catch (error) {
+		stopEvdevCapture();
 		if (!hasLoggedInteractionHookFailure) {
 			setHasLoggedInteractionHookFailure(true);
 			console.warn("[CursorTelemetry] Global interaction capture unavailable:", error);

@@ -270,8 +270,10 @@ export function startEvdevButtonCapture(handlers: {
 	const stoppers = listMouseEventDevices().map((devicePath) => {
 		let fd: number | null = null;
 		let timer: NodeJS.Timeout | null = null;
+		let stopped = false;
 		const buffer = Buffer.alloc(256);
 		const stop = () => {
+			stopped = true;
 			if (timer) {
 				clearInterval(timer);
 				timer = null;
@@ -290,18 +292,24 @@ export function startEvdevButtonCapture(handlers: {
 				stop();
 				return;
 			}
+			if (stopped) {
+				// stop() ran while fs.open was in flight — close the descriptor
+				// immediately instead of leaking it.
+				fs.closeSync(openedFd);
+				console.log("[REC-DEBUG] evdev closed (stop before open):", devicePath);
+				return;
+			}
 			fd = openedFd;
 			console.log("[REC-DEBUG] evdev fd opened:", devicePath);
 			timer = setInterval(() => {
-				if (fd === null) {
+				if (stopped || fd === null) {
 					clearInterval(timer ?? undefined);
 					return;
 				}
 				fs.read(fd, buffer, 0, buffer.length, null, (readError, bytesRead) => {
-					if (readError || bytesRead <= 0) {
+					if (stopped || readError || bytesRead <= 0) {
 						return;
 					}
-					console.log("[REC-DEBUG] evdev data:", bytesRead, "bytes");
 					for (const event of parseEvdevButtonEvents(buffer.subarray(0, bytesRead))) {
 						if (event.pressed) {
 							handlers.onMouseDown(event.button);
