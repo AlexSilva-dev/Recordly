@@ -12,7 +12,10 @@ import {
 	setLastLeftClick,
 	setLinuxCursorScreenPoint,
 } from "../state";
-import { isHyprlandCursorProviderActive } from "./hyprland";
+import {
+	isHyprlandCursorProviderActive,
+	startEvdevButtonCapture,
+} from "./hyprland";
 import {
 	getNormalizedCursorPoint,
 	getCursorCaptureElapsedMs,
@@ -210,6 +213,7 @@ export async function startInteractionCapture() {
 
 			const point = getNormalizedCursorPoint();
 			if (!point) {
+				console.log("[REC-DEBUG] cursor point NULL — click sample skipped");
 				return;
 			}
 
@@ -285,7 +289,14 @@ export async function startInteractionCapture() {
 			hook.on("mousemove", onMouseMove);
 		}
 
+		// Raw evdev clicks (Wayland: the uiohook never sees them) — handlers
+		// above read the cursor position from the Hyprland provider state.
+		const stopEvdevCapture = startEvdevButtonCapture({
+			onMouseDown: (button) => onMouseDown({ button } as unknown as HookMouseEvent),
+			onMouseUp: () => onMouseUp(),
+		});
 		setInteractionCaptureCleanup(() => {
+			stopEvdevCapture();
 			try {
 				if (typeof hook.off === "function") {
 					hook.off("mousedown", onMouseDown);
