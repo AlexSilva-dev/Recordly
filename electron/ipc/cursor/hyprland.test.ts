@@ -79,8 +79,10 @@ describe("Hyprland cursor provider", () => {
 		expect(parseHyprlandCursorPosition("not json")).toBeNull();
 	});
 
-	it("applies the measured Hyprland media timeline correction", () => {
-		expect(resolveHyprlandCursorCaptureEpochMs(10_000)).toBe(9_700);
+	it("keeps cursor capture aligned with the media timeline (no legacy offset)", () => {
+		// The 300 ms correction compensated for telemetry starting before the
+		// capture; with the portal permission gate, both start together.
+		expect(resolveHyprlandCursorCaptureEpochMs(10_000)).toBe(10_000);
 	});
 
 	it("polls serially and stops without publishing a late response", async () => {

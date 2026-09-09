@@ -906,6 +906,14 @@ interface Window {
 		cancelCountdown: () => Promise<{ success: boolean }>;
 		getActiveCountdown: () => Promise<{ success: boolean; seconds: number | null }>;
 		onCountdownTick: (callback: (seconds: number) => void) => () => void;
+		/** Linux portal: wait for the user to accept the screen permission dialog */
+		beginScreenPermissionWait: () => Promise<{
+			success: boolean;
+			cancelled?: boolean;
+			error?: string;
+		}>;
+		endScreenPermissionWait: (granted: boolean) => Promise<{ success: boolean }>;
+		onAwaitingScreenPermission: (callback: (awaiting: boolean) => void) => () => void;
 	};
 }
 

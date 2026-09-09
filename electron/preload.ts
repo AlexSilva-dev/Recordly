@@ -992,4 +992,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
 		ipcRenderer.on("countdown-tick", listener);
 		return () => ipcRenderer.removeListener("countdown-tick", listener);
 	},
+	beginScreenPermissionWait: () => ipcRenderer.invoke("begin-screen-permission-wait"),
+	endScreenPermissionWait: (granted: boolean) =>
+		ipcRenderer.invoke("end-screen-permission-wait", granted),
+	onAwaitingScreenPermission: (callback: (awaiting: boolean) => void) => {
+		const listener = (_event: Electron.IpcRendererEvent, awaiting: boolean) =>
+			callback(awaiting);
+		ipcRenderer.on("awaiting-screen-permission-changed", listener);
+		return () => ipcRenderer.removeListener("awaiting-screen-permission-changed", listener);
+	},
 });
