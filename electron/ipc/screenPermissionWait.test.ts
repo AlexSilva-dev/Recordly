@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { createScreenPermissionWaitController } from "./screenPermissionWait";
 
-function createHarness() {
+function createHarness(now: () => number = () => Date.now()) {
 	const events: string[] = [];
-	const controller = createScreenPermissionWaitController({
-		onWaitStarted: () => {
-			events.push("started");
+	const controller = createScreenPermissionWaitController(
+		{
+			onWaitStarted: () => {
+				events.push("started");
+			},
+			onWaitEnded: (granted) => {
+				events.push(granted ? "ended:granted" : "ended:denied");
+			},
 		},
-		onWaitEnded: (granted) => {
-			events.push(granted ? "ended:granted" : "ended:denied");
-		},
-	});
+		{ now },
+	);
 	return { controller, events };
 }
 
@@ -87,5 +90,83 @@ describe("createScreenPermissionWaitController", () => {
 		expect(controller.isPending()).toBe(true);
 		controller.cancel();
 		await expect(second).resolves.toEqual({ success: false, cancelled: true });
+	});
+});
+
+describe("post-grant overlay cancel race", () => {
+	it("blocks the next countdown start when the overlay is clicked after the grant", () => {
+		const { controller, events } = createHarness();
+
+		controller.begin();
+		controller.end(true);
+		// User clicks the overlay between the grant resolution and the
+		// renderer calling start-countdown.
+		controller.cancel();
+
+		expect(controller.consumeCountdownStartGate()).toBe(true);
+		expect(events).toEqual(["started", "ended:granted", "ended:denied"]);
+	});
+
+	it("consumes the block on the first gate check so later starts pass", () => {
+		const { controller } = createHarness();
+
+		controller.begin();
+		controller.end(true);
+		controller.cancel();
+
+		expect(controller.consumeCountdownStartGate()).toBe(true);
+		expect(controller.consumeCountdownStartGate()).toBe(false);
+	});
+
+	it("allows the countdown start after a clean grant", () => {
+		const { controller } = createHarness();
+
+		controller.begin();
+		controller.end(true);
+
+		expect(controller.consumeCountdownStartGate()).toBe(false);
+	});
+
+	it("an inert cancel (no wait in flight) never arms the gate", () => {
+		const { controller } = createHarness();
+
+		controller.cancel();
+
+		expect(controller.consumeCountdownStartGate()).toBe(false);
+	});
+
+	it("expires the post-grant cancel signal after the race window", () => {
+		let nowMs = 0;
+		const { controller } = createHarness(() => nowMs);
+
+		controller.begin();
+		controller.end(true);
+		controller.cancel();
+
+		nowMs = 2_500;
+		expect(controller.consumeCountdownStartGate()).toBe(false);
+	});
+
+	it("a new begin recycles a granted wait left pending", () => {
+		const { controller } = createHarness();
+
+		controller.begin();
+		controller.end(true);
+
+		const second = controller.begin();
+		expect(second).not.toBeNull();
+		controller.end(false);
+	});
+});
+
+describe("awaiting overlay state", () => {
+	it("reports awaiting only while the wait is pending", () => {
+		const { controller } = createHarness();
+
+		expect(controller.isAwaitingOverlay()).toBe(false);
+		controller.begin();
+		expect(controller.isAwaitingOverlay()).toBe(true);
+		controller.end(true);
+		expect(controller.isAwaitingOverlay()).toBe(false);
 	});
 });

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { app, ipcMain } from "electron";
+import { app, ipcMain, screen } from "electron";
 import { hasAppSetting, readAppSettingsStore, writeAppSettingsStore } from "../../appSettingsStore";
 import { hideCursor } from "../../cursorHider";
 import { closeCountdownWindow, createCountdownWindow, getCountdownWindow } from "../../windows";
@@ -49,12 +49,34 @@ function sendAwaitingScreenPermission(win: Electron.BrowserWindow, awaiting: boo
 	}
 }
 
+// The awaiting layout (glass panel with spinner + labels) is taller than the
+// 200×200 countdown circle; the window is resized per state and recentered on
+// the primary display's work area.
+const COUNTDOWN_WINDOW_SIZE = { width: 200, height: 200 } as const;
+const AWAITING_WINDOW_SIZE = { width: 320, height: 320 } as const;
+
+function setCountdownWindowGeometry(awaiting: boolean) {
+	const win = getCountdownWindow();
+	if (!win || win.isDestroyed()) {
+		return;
+	}
+	const size = awaiting ? AWAITING_WINDOW_SIZE : COUNTDOWN_WINDOW_SIZE;
+	const { workArea } = screen.getPrimaryDisplay();
+	win.setBounds({
+		x: Math.floor(workArea.x + (workArea.width - size.width) / 2),
+		y: Math.floor(workArea.y + (workArea.height - size.height) / 2),
+		width: size.width,
+		height: size.height,
+	});
+}
+
 // Linux portal permission wait: drives the countdown overlay window between
 // "waiting for the user to accept the portal dialog" and the countdown that
 // follows once capture frames actually flow.
 const screenPermissionWait = createScreenPermissionWaitController({
 	onWaitStarted: () => {
 		const win = getCountdownWindow() ?? createCountdownWindow();
+		setCountdownWindowGeometry(true);
 		if (win.webContents.isLoadingMainFrame()) {
 			win.webContents.once("did-finish-load", () => {
 				if (screenPermissionWait.isPending()) {
@@ -73,6 +95,7 @@ const screenPermissionWait = createScreenPermissionWaitController({
 			if (win) {
 				sendAwaitingScreenPermission(win, false);
 			}
+			setCountdownWindowGeometry(false);
 		} else {
 			closeCountdownWindow();
 		}
@@ -227,6 +250,12 @@ export function registerSettingsHandlers() {
 			return { success: false, error: "Countdown already in progress" };
 		}
 
+		// A post-grant overlay cancel (click / Esc between the permission
+		// grant and this call) must suppress the countdown entirely.
+		if (screenPermissionWait.consumeCountdownStartGate()) {
+			return { success: false, cancelled: true };
+		}
+
 		setCountdownInProgress(true);
 		setCountdownCancelled(false);
 		setCountdownRemaining(seconds);
@@ -307,6 +336,10 @@ export function registerSettingsHandlers() {
 			success: true,
 			seconds: countdownInProgress ? countdownRemaining : null,
 		};
+	});
+
+	ipcMain.handle("get-awaiting-screen-permission", () => {
+		return { success: true, awaiting: screenPermissionWait.isAwaitingOverlay() };
 	});
 
 	ipcMain.handle("begin-screen-permission-wait", () => {

@@ -913,6 +913,7 @@ interface Window {
 			error?: string;
 		}>;
 		endScreenPermissionWait: (granted: boolean) => Promise<{ success: boolean }>;
+		getAwaitingScreenPermission: () => Promise<{ success: boolean; awaiting: boolean }>;
 		onAwaitingScreenPermission: (callback: (awaiting: boolean) => void) => () => void;
 	};
 }

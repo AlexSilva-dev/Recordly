@@ -995,6 +995,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	beginScreenPermissionWait: () => ipcRenderer.invoke("begin-screen-permission-wait"),
 	endScreenPermissionWait: (granted: boolean) =>
 		ipcRenderer.invoke("end-screen-permission-wait", granted),
+	getAwaitingScreenPermission: () => ipcRenderer.invoke("get-awaiting-screen-permission"),
 	onAwaitingScreenPermission: (callback: (awaiting: boolean) => void) => {
 		const listener = (_event: Electron.IpcRendererEvent, awaiting: boolean) =>
 			callback(awaiting);
