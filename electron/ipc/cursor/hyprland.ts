@@ -9,11 +9,15 @@ import { linuxCursorScreenPoint, setLinuxCursorScreenPoint } from "../state";
 const MAX_RESPONSE_BYTES = 4096;
 const REQUEST_TIMEOUT_MS = 250;
 const PROVIDER_FRESHNESS_INTERVALS = 3;
-// EXPERIMENTO: offset zerado para medir o desalinhamento real entre a
-// telemetria do cursor e o início do vídeo (hipótese: a telemetria inicia
-// antes da captura, pois o seletor do portal bloqueia o getUserMedia após
-// a contagem). Original do upstream: 300.
+// With the portal permission gate in place (recording only starts after the
+// first captured frame), cursor telemetry and video begin together — no
+// calibration offset is needed. Historical note: the previous 300 ms offset
+// compensated for telemetry starting before the capture.
 export const HYPRLAND_CURSOR_MEDIA_OFFSET_MS = 0;
+// Opt-in diagnostics for recording timing investigations: REC_DEBUG=1 logs
+// cursor positions at high rate. Default OFF — zero overhead in production.
+const REC_DEBUG = process.env.REC_DEBUG === "1";
+const REC_DEBUG_POS_LOG_INTERVAL_MS = 50;
 let lastDebugPosLogAt = 0;
 
 type CursorPoint = { x: number; y: number };
@@ -135,7 +139,7 @@ export async function startHyprlandCursorProvider(options?: {
 		options?.onPoint ??
 		((point: CursorPoint) => {
 			const nowMs = Date.now();
-			if (nowMs - lastDebugPosLogAt > 500) {
+			if (REC_DEBUG && nowMs - lastDebugPosLogAt > REC_DEBUG_POS_LOG_INTERVAL_MS) {
 				lastDebugPosLogAt = nowMs;
 				console.log(`[REC-DEBUG] POS ${point.x},${point.y} at ${nowMs}`);
 			}
@@ -273,7 +277,9 @@ export function startEvdevButtonCapture(handlers: {
 	// already captures clicks, and double-counting them corrupts the telemetry.
 	if (process.platform !== "linux" || !getHyprlandRequestSocketPath(process.env)) {
 		return () => {
-			console.log("[REC-DEBUG] evdev capture skipped (no Hyprland session)");
+			if (REC_DEBUG) {
+				console.log("[REC-DEBUG] evdev capture skipped (no Hyprland session)");
+			}
 		};
 	}
 	const stoppers = listMouseEventDevices().map((devicePath) => {
@@ -291,13 +297,17 @@ export function startEvdevButtonCapture(handlers: {
 				const fdToClose = fd;
 				fd = null;
 				fs.close(fdToClose, () => {
-					console.log(`[REC-DEBUG] evdev closed: ${devicePath}`);
+					if (REC_DEBUG) {
+						console.log(`[REC-DEBUG] evdev closed: ${devicePath}`);
+					}
 				});
 			}
 		};
 		fs.open(devicePath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK, (openError, openedFd) => {
 			if (openError || openedFd === undefined) {
-				console.log("[REC-DEBUG] evdev open FAILED:", devicePath, openError?.message);
+				if (REC_DEBUG) {
+					console.log("[REC-DEBUG] evdev open FAILED:", devicePath, openError?.message);
+				}
 				stop();
 				return;
 			}
@@ -305,11 +315,15 @@ export function startEvdevButtonCapture(handlers: {
 				// stop() ran while fs.open was in flight — close the descriptor
 				// immediately instead of leaking it.
 				fs.closeSync(openedFd);
-				console.log("[REC-DEBUG] evdev closed (stop before open):", devicePath);
+				if (REC_DEBUG) {
+					console.log("[REC-DEBUG] evdev closed (stop before open):", devicePath);
+				}
 				return;
 			}
 			fd = openedFd;
-			console.log("[REC-DEBUG] evdev fd opened:", devicePath);
+			if (REC_DEBUG) {
+				console.log("[REC-DEBUG] evdev fd opened:", devicePath);
+			}
 			timer = setInterval(() => {
 				if (stopped || fd === null) {
 					clearInterval(timer ?? undefined);

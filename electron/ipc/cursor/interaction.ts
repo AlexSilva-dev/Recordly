@@ -263,9 +263,20 @@ export async function startInteractionCapture() {
 
 	// Raw evdev clicks (Wayland: the uiohook never sees them) — must start
 	// independently of the uiohook, which can fail to load on Wayland.
+	// REC_DEBUG=1 enables click timing diagnostics; default OFF.
 	const stopEvdevCapture = startEvdevButtonCapture({
-		onMouseDown: (button) => onMouseDown({ button } as unknown as HookMouseEvent),
-		onMouseUp: () => onMouseUp(),
+		onMouseDown: (button) => {
+			if (process.env.REC_DEBUG === "1") {
+				console.log(`[REC-DEBUG] CLICK ${button} at ${Date.now()}`);
+			}
+			onMouseDown({ button } as unknown as HookMouseEvent);
+		},
+		onMouseUp: () => {
+			if (process.env.REC_DEBUG === "1") {
+				console.log(`[REC-DEBUG] CLICK up at ${Date.now()}`);
+			}
+			onMouseUp();
+		},
 	});
 	setInteractionCaptureCleanup(() => {
 		stopEvdevCapture();
