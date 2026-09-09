@@ -53,6 +53,7 @@ import {
 	getUpdateToastWindow,
 	hideUpdateToastWindow,
 	isHudOverlayMousePassthroughSupported,
+	isHudOverlayRecordingActive,
 	reassertHudOverlayCaptureProtection,
 	reassertHudOverlayMousePassthrough as reassertHudOverlayMouseState,
 	setHudOverlayRecordingActive,
@@ -374,7 +375,7 @@ function focusOrCreateMainWindow() {
 		// work because they receive an XDG activation token via StatusNotifierItem.ProvideXdgActivationToken;
 		// Electron's tray doesn't handle that yet. Workaround: destroy and recreate the HUD so the new
 		// window gets focus (creation path works). Only for HUD, not editor.
-		// A hidden or minimized HUD must never take this path: destroy kills
+		// A hidden, minimized, or recording HUD must never take this path: destroy kills
 		// the renderer and any in-flight recording with it — the show()
 		// path below restores it (same as showHudOverlayFromTray).
 		if (
@@ -384,6 +385,7 @@ function focusOrCreateMainWindow() {
 				isVisible: mainWindow.isVisible(),
 				isMinimized: mainWindow.isMinimized(),
 				isEditor: isEditorWindow(mainWindow),
+				recordingActive: isHudOverlayRecordingActive(),
 			}) === "recreate"
 		) {
 			const win = mainWindow;

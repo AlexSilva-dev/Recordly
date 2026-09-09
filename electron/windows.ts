@@ -713,6 +713,10 @@ export function setHudOverlayRecordingActive(recording: boolean): void {
 	setHudOverlayMousePassthrough(true);
 }
 
+export function isHudOverlayRecordingActive(): boolean {
+	return hudOverlayRecordingActive;
+}
+
 export function createUpdateToastWindow(): BrowserWindow {
 	const initialBounds = getUpdateToastBounds();
 

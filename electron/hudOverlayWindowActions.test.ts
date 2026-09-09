@@ -86,6 +86,7 @@ describe("decideHudOverlayRestoreStrategy", () => {
 				isVisible: false,
 				isMinimized: false,
 				isEditor: false,
+				recordingActive: true,
 			}),
 		).toBe("show-existing");
 	});
@@ -98,11 +99,17 @@ describe("decideHudOverlayRestoreStrategy", () => {
 				isVisible: true,
 				isMinimized: true,
 				isEditor: false,
+				recordingActive: true,
 			}),
 		).toBe("show-existing");
 	});
 
-	it("keeps the recreate workaround for a visible but unfocused HUD on Linux", () => {
+	it("shows a visible but unfocused HUD during active recording instead of recreating it", () => {
+		// Regression (P1): during recording the HUD stays visible while
+		// unfocused (windows.ts keeps it shown while recording), so the
+		// recreate workaround destroyed the window and silently killed the
+		// MediaRecorder living in the HUD renderer — main kept
+		// recording=true in the tray with no window left to stop it.
 		expect(
 			decideHudOverlayRestoreStrategy({
 				platform: "linux",
@@ -110,6 +117,20 @@ describe("decideHudOverlayRestoreStrategy", () => {
 				isVisible: true,
 				isMinimized: false,
 				isEditor: false,
+				recordingActive: true,
+			}),
+		).toBe("show-existing");
+	});
+
+	it("keeps the recreate workaround for a visible but unfocused HUD on Linux while not recording", () => {
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: false,
+				isVisible: true,
+				isMinimized: false,
+				isEditor: false,
+				recordingActive: false,
 			}),
 		).toBe("recreate");
 	});
@@ -122,6 +143,7 @@ describe("decideHudOverlayRestoreStrategy", () => {
 				isVisible: true,
 				isMinimized: false,
 				isEditor: false,
+				recordingActive: false,
 			}),
 		).toBe("show-existing");
 	});
@@ -134,6 +156,7 @@ describe("decideHudOverlayRestoreStrategy", () => {
 				isVisible: true,
 				isMinimized: false,
 				isEditor: true,
+				recordingActive: false,
 			}),
 		).toBe("show-existing");
 	});
@@ -147,6 +170,7 @@ describe("decideHudOverlayRestoreStrategy", () => {
 					isVisible: false,
 					isMinimized: false,
 					isEditor: false,
+					recordingActive: false,
 				}),
 			).toBe("show-existing");
 		}

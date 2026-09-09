@@ -31,6 +31,7 @@ export type HudOverlayRestoreInput = {
 	isVisible: boolean;
 	isMinimized: boolean;
 	isEditor: boolean;
+	recordingActive: boolean;
 };
 
 export function decideHudOverlayRestoreStrategy(
@@ -39,18 +40,20 @@ export function decideHudOverlayRestoreStrategy(
 	// On Linux, tray activation can't focus an existing window (compositors
 	// ignore focus()), so main destroys and recreates the HUD to regain
 	// focus via the creation path. That workaround must never fire for a
-	// hidden or minimized window: destroy kills the renderer — and with it
-	// any in-flight recording, since the MediaRecorder lives in the HUD
+	// hidden or minimized window — and never during an active recording,
+	// when the HUD stays visible but unfocused: destroy kills the renderer
+	// — and with it the in-flight MediaRecorder, which lives in the HUD
 	// renderer — while the fresh renderer starts with idle state and main
-	// keeps recording=true in the tray. Hidden/minimized windows restore
-	// through the show() path instead, exactly like the tray menu items
-	// (showHudOverlayFromTray) already do.
+	// keeps recording=true in the tray. Hidden/minimized/recording windows
+	// restore through the show() path instead, exactly like the tray menu
+	// items (showHudOverlayFromTray) already do.
 	if (
 		input.platform === "linux" &&
 		!input.isEditor &&
 		input.isVisible &&
 		!input.isMinimized &&
-		!input.isFocused
+		!input.isFocused &&
+		!input.recordingActive
 	) {
 		return "recreate";
 	}
