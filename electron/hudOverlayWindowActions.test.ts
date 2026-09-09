@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { isWaylandSession } from "./hudOverlaySession";
-import { hideHudOverlayWindow } from "./hudOverlayWindowActions";
+import {
+	decideHudOverlayRestoreStrategy,
+	hideHudOverlayWindow,
+} from "./hudOverlayWindowActions";
 
 function createHudStub() {
 	return {
@@ -67,6 +70,85 @@ describe("hideHudOverlayWindow", () => {
 		} else {
 			expect(hud.minimize).toHaveBeenCalledOnce();
 			expect(hud.hide).not.toHaveBeenCalled();
+		}
+	});
+});
+
+describe("decideHudOverlayRestoreStrategy", () => {
+	it("shows a hidden HUD instead of recreating it (recording survives tray restore on Wayland)", () => {
+		// Regression: hidden window is never focused, so the old condition
+		// destroyed+recreated it, killing the renderer and its in-flight
+		// MediaRecorder while main kept recording=true in the tray.
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: false,
+				isVisible: false,
+				isMinimized: false,
+				isEditor: false,
+			}),
+		).toBe("show-existing");
+	});
+
+	it("shows a minimized HUD instead of recreating it (X11 minimize path)", () => {
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: false,
+				isVisible: true,
+				isMinimized: true,
+				isEditor: false,
+			}),
+		).toBe("show-existing");
+	});
+
+	it("keeps the recreate workaround for a visible but unfocused HUD on Linux", () => {
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: false,
+				isVisible: true,
+				isMinimized: false,
+				isEditor: false,
+			}),
+		).toBe("recreate");
+	});
+
+	it("never recreates an already focused HUD on Linux", () => {
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: true,
+				isVisible: true,
+				isMinimized: false,
+				isEditor: false,
+			}),
+		).toBe("show-existing");
+	});
+
+	it("never recreates editor windows on Linux", () => {
+		expect(
+			decideHudOverlayRestoreStrategy({
+				platform: "linux",
+				isFocused: false,
+				isVisible: true,
+				isMinimized: false,
+				isEditor: true,
+			}),
+		).toBe("show-existing");
+	});
+
+	it("shows the existing window on Windows and macOS regardless of focus", () => {
+		for (const platform of ["win32", "darwin"] as const) {
+			expect(
+				decideHudOverlayRestoreStrategy({
+					platform,
+					isFocused: false,
+					isVisible: false,
+					isMinimized: false,
+					isEditor: false,
+				}),
+			).toBe("show-existing");
 		}
 	});
 });
