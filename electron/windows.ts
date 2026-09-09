@@ -13,6 +13,7 @@ import {
 } from "./hudOverlayBounds";
 import { getHudOverlayTaskbarOptions } from "./hudOverlayWindowOptions";
 import { isWaylandSession } from "./hudOverlaySession";
+import { hideHudOverlayWindow } from "./hudOverlayWindowActions";
 import { getPackagedRendererBaseUrl } from "./rendererServer";
 
 const electronWindowsDir = path.dirname(fileURLToPath(import.meta.url));
@@ -422,7 +423,7 @@ ipcMain.on("hud-overlay-drag", (_event, phase: string, screenX: number, screenY:
 
 ipcMain.on("hud-overlay-hide", () => {
 	if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
-		hudOverlayWindow.minimize();
+		hideHudOverlayWindow(hudOverlayWindow, process.platform, isHudOverlayWaylandSession());
 	}
 });
 
