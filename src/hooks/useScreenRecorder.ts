@@ -1739,7 +1739,11 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				preparedStart;
 			const useNativeCapture = useNativeMacScreenCapture || useNativeWindowsCapture;
 			const shouldWarmStartNativeCapture = useNativeCapture && countdownDelay > 0;
-			if (countdownDelay > 0 && !shouldWarmStartNativeCapture) {
+			if (
+				countdownDelay > 0 &&
+				!shouldWarmStartNativeCapture &&
+				selectedSource.id !== "screen:linux-portal"
+			) {
 				setCountdownActive(true);
 				try {
 					const result = await window.electronAPI.startCountdown(countdownDelay);
@@ -2185,6 +2189,25 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					videoBitsPerSecond / BITS_PER_MEGABIT,
 				)} Mbps`,
 			);
+
+			// Linux portal: the screen picker (and its permission token) runs
+			// BEFORE the countdown, so the recording starts immediately after
+			// it — no frozen lead-in frames and no telemetry/video drift.
+			if (countdownDelay > 0) {
+				setCountdownActive(true);
+				try {
+					const result = await window.electronAPI.startCountdown(countdownDelay);
+					if (!result.success || result.cancelled || startWasCancelled()) {
+						cleanupCapturedMedia();
+						await stopWebcamRecorder();
+						return;
+					}
+				} finally {
+					setCountdownActive(false);
+				}
+				recordingSessionTimestamp.current = Date.now();
+				resetRecordingClock(recordingSessionTimestamp.current);
+			}
 
 			chunks.current = [];
 			const hasAudio = stream.current.getAudioTracks().length > 0;

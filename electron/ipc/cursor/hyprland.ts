@@ -9,8 +9,12 @@ import { linuxCursorScreenPoint, setLinuxCursorScreenPoint } from "../state";
 const MAX_RESPONSE_BYTES = 4096;
 const REQUEST_TIMEOUT_MS = 250;
 const PROVIDER_FRESHNESS_INTERVALS = 3;
-// Calibration against Hyprland portal recordings showed cursor telemetry 300 ms early.
-export const HYPRLAND_CURSOR_MEDIA_OFFSET_MS = 300;
+// EXPERIMENTO: offset zerado para medir o desalinhamento real entre a
+// telemetria do cursor e o início do vídeo (hipótese: a telemetria inicia
+// antes da captura, pois o seletor do portal bloqueia o getUserMedia após
+// a contagem). Original do upstream: 300.
+export const HYPRLAND_CURSOR_MEDIA_OFFSET_MS = 0;
+let lastDebugPosLogAt = 0;
 
 type CursorPoint = { x: number; y: number };
 type QueryCursorPoint = (socketPath: string) => Promise<CursorPoint | null>;
@@ -130,9 +134,14 @@ export async function startHyprlandCursorProvider(options?: {
 	const onPoint =
 		options?.onPoint ??
 		((point: CursorPoint) => {
+			const nowMs = Date.now();
+			if (nowMs - lastDebugPosLogAt > 500) {
+				lastDebugPosLogAt = nowMs;
+				console.log(`[REC-DEBUG] POS ${point.x},${point.y} at ${nowMs}`);
+			}
 			setLinuxCursorScreenPoint({
 				...point,
-				updatedAt: Date.now(),
+				updatedAt: nowMs,
 				coordinateSpace: "logical",
 				source: "hyprland",
 			});
