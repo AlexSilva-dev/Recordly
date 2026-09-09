@@ -10,7 +10,7 @@
 		"countdownDelay": "Atraso da contagem regressiva",
 			"awaitingScreenPermission": "Aguardando permissão de tela…",
 			"cancelledNoPermission": "Gravação cancelada — permissão de tela não concedida",
-			"cancelCountdownHint": "Clique em qualquer lugar ou pressione Esc para cancelar",
+			"cancelCountdownHint": "Clique aqui ou pressione Esc para cancelar",
 		"noDelay": "Sem atraso",
 		"record": "Gravar",
 		"recordingFolder": "Caminho das gravações: {{path}}",

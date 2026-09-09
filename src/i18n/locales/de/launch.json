@@ -10,7 +10,7 @@
 		"countdownDelay": "Countdown-Verzögerung",
 			"awaitingScreenPermission": "Warten auf Bildschirmberechtigung…",
 			"cancelledNoPermission": "Aufzeichnung abgebrochen – Bildschirmberechtigung nicht erteilt",
-			"cancelCountdownHint": "Klicke irgendwo oder drücke Esc zum Abbrechen",
+			"cancelCountdownHint": "Klicke hier oder drücke Esc zum Abbrechen",
 		"noDelay": "Keine Verzögerung",
 		"record": "Aufnehmen",
 		"recordingFolder": "Pfad zu den Aufzeichnungen: {{path}}",

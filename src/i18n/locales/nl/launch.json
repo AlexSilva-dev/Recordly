@@ -10,7 +10,7 @@
 		"countdownDelay": "Aftelvertraging",
 			"awaitingScreenPermission": "Wachten op schermtoestemming…",
 			"cancelledNoPermission": "Opname geannuleerd – schermtoestemming niet verleend",
-			"cancelCountdownHint": "Klik ergens of druk op Esc om te annuleren",
+			"cancelCountdownHint": "Klik hier of druk op Esc om te annuleren",
 		"noDelay": "Geen vertraging",
 		"record": "Opnemen",
 		"recordingFolder": "Opnamepad: {{path}}",

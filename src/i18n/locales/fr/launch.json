@@ -10,7 +10,7 @@
 		"countdownDelay": "Délai du compte à rebours",
 			"awaitingScreenPermission": "En attente de l'autorisation d'écran…",
 			"cancelledNoPermission": "Enregistrement annulé : autorisation d'écran non accordée",
-			"cancelCountdownHint": "Cliquez n'importe où ou appuyez sur Échap pour annuler",
+			"cancelCountdownHint": "Cliquez ici ou appuyez sur Échap pour annuler",
 		"noDelay": "Aucun délai",
 		"record": "Enregistrer",
 		"recordingFolder": "Chemin des enregistrements : {{path}}",

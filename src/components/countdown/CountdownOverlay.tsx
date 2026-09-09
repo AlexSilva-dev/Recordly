@@ -97,7 +97,7 @@ export function CountdownOverlay() {
 							{t("recording.awaitingScreenPermission", "Waiting for screen permission…")}
 						</span>
 						<span className="text-white/70 text-sm">
-							{t("recording.cancelCountdownHint", "Click anywhere or press Esc to cancel")}
+							{t("recording.cancelCountdownHint", "Click here or press Esc to cancel")}
 						</span>
 					</div>
 				</div>

@@ -10,7 +10,7 @@
 		"countdownDelay": "Обратный отсчёт",
 			"awaitingScreenPermission": "Ожидание разрешения на захват экрана…",
 			"cancelledNoPermission": "Запись отменена — разрешение на захват экрана не выдано",
-			"cancelCountdownHint": "Щёлкните в любом месте или нажмите Esc, чтобы отменить",
+			"cancelCountdownHint": "Нажмите здесь или клавишу Esc, чтобы отменить",
 		"noDelay": "Без задержки",
 		"record": "Запись",
 		"recordingFolder": "Место сохранения: {{path}}",

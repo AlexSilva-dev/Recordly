@@ -10,7 +10,7 @@
 		"countdownDelay": "Countdown delay",
 			"awaitingScreenPermission": "Waiting for screen permission…",
 			"cancelledNoPermission": "Recording canceled — screen permission not granted",
-			"cancelCountdownHint": "Click anywhere or press Esc to cancel",
+			"cancelCountdownHint": "Click here or press Esc to cancel",
 		"noDelay": "No delay",
 		"record": "Record",
 		"recordingFolder": "Recordings Path: {{path}}",
