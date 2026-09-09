@@ -2209,33 +2209,50 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 									resolve(value);
 								}
 							};
-							void trackWait.then(finish);
-							void overlayWait.then((result) => {
+						void trackWait.then(finish);
+						void overlayWait
+							.then((result) => {
 								if (result.cancelled) {
 									finish("cancelled");
 								}
+							})
+							.catch((error) => {
+								console.warn("Screen permission wait IPC failed:", error);
+								finish("cancelled");
 							});
-						});
-						if (outcome !== "cancelled") {
-							await window.electronAPI.endScreenPermissionWait(outcome === "granted");
-						}
-					} finally {
-						permissionProbe.dispose();
-						setAwaitingScreenPermission(false);
+					});
+					if (outcome !== "cancelled") {
+						await window.electronAPI.endScreenPermissionWait(outcome === "granted");
 					}
-					if (outcome !== "granted" || startWasCancelled()) {
-						cleanupCapturedMedia();
-						await stopWebcamRecorder();
-						if (outcome === "denied" && !startWasCancelled()) {
-							toast.info(
-								t(
-									"recording.cancelledNoPermission",
-									"Recording canceled — screen permission not granted",
-								),
+				} finally {
+					permissionProbe.dispose();
+					setAwaitingScreenPermission(false);
+				}
+				if (outcome !== "granted" || startWasCancelled()) {
+					// A post-grant cancellation (HUD cancel raced with the
+					// accept) leaves the overlay window alive — close it.
+					if (outcome === "granted") {
+						try {
+							await window.electronAPI.cancelCountdown();
+						} catch (closeError) {
+							console.warn(
+								"Failed to close the countdown window after cancellation:",
+								closeError,
 							);
 						}
-						return;
 					}
+					cleanupCapturedMedia();
+					await stopWebcamRecorder();
+					if ((outcome === "denied" || outcome === "cancelled") && !startWasCancelled()) {
+						toast.info(
+							t(
+								"recording.cancelledNoPermission",
+								"Recording canceled — screen permission not granted",
+							),
+						);
+					}
+					return;
+				}
 				}
 			}
 
@@ -2411,6 +2428,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			}
 		} catch (error) {
 			console.error("Failed to start recording:", error);
+			// A failure after the portal grant (e.g. MediaRecorder rejecting
+			// the stream) must not leave the transparent alwaysOnTop countdown
+			// window open and invisibly blocking clicks. Inert otherwise.
+			try {
+				await window.electronAPI.cancelCountdown();
+			} catch (closeError) {
+				console.warn("Failed to close the countdown window after a start failure:", closeError);
+			}
 			if (linuxPortalAttempt && isScreenPermissionDeniedError(error)) {
 				// The user denied or dismissed the portal dialog — a choice,
 				// not a failure. Quiet informational toast, no error dialog.

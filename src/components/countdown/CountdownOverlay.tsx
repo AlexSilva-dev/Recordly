@@ -13,6 +13,14 @@ export function CountdownOverlay() {
 			}
 		});
 
+		// Pull the current awaiting state: the awaiting event may have fired
+		// before this (lazily loaded) component mounted its listener.
+		void window.electronAPI.getAwaitingScreenPermission().then((result) => {
+			if (result.success && result.awaiting) {
+				setAwaitingScreenPermission(true);
+			}
+		});
+
 		const cleanup = window.electronAPI.onCountdownTick((seconds: number) => {
 			// A tick means the countdown has taken over the overlay.
 			setAwaitingScreenPermission(false);
@@ -55,67 +63,74 @@ export function CountdownOverlay() {
 		return null;
 	}
 
+	if (awaitingScreenPermission) {
+		return (
+			<div
+				className="fixed inset-0 flex items-center justify-center select-none cursor-pointer"
+				onClick={handleCancel}
+				onKeyDown={(e) => e.key === "Escape" && handleCancel()}
+			>
+				<div
+					className="flex flex-col items-center gap-4 rounded-3xl px-6 py-6"
+					style={{
+						width: 320,
+						background: "rgba(0, 0, 0, 0.85)",
+						backdropFilter: "blur(20px)",
+					}}
+				>
+					<div
+						className="flex items-center justify-center"
+						style={{ width: 180, height: 180 }}
+					>
+						<span
+							className="animate-spin rounded-full"
+							style={{
+								width: 56,
+								height: 56,
+								border: "6px solid rgba(255, 255, 255, 0.2)",
+								borderTopColor: "rgba(255, 255, 255, 1)",
+							}}
+						/>
+					</div>
+					<div className="flex flex-col items-center gap-1 text-center">
+						<span className="text-white font-semibold" style={{ fontSize: 15 }}>
+							{t("recording.awaitingScreenPermission", "Waiting for screen permission…")}
+						</span>
+						<span className="text-white/70 text-sm">
+							{t("recording.cancelCountdownHint", "Click anywhere or press Esc to cancel")}
+						</span>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
 	return (
 		<div
-			className="fixed inset-0 flex flex-col items-center justify-center gap-4 select-none cursor-pointer"
+			className="fixed inset-0 flex items-center justify-center select-none cursor-pointer"
 			onClick={handleCancel}
 			onKeyDown={(e) => e.key === "Escape" && handleCancel()}
 		>
-			{awaitingScreenPermission ? (
-				<div
-					className="flex items-center justify-center rounded-3xl"
+			<div
+				className="flex items-center justify-center rounded-3xl"
+				style={{
+					width: 180,
+					height: 180,
+					background: "rgba(0, 0, 0, 0.85)",
+					backdropFilter: "blur(20px)",
+				}}
+			>
+				<span
+					className="text-white font-bold tabular-nums"
 					style={{
-						width: 180,
-						height: 180,
-						background: "rgba(0, 0, 0, 0.85)",
-						backdropFilter: "blur(20px)",
+						fontSize: "100px",
+						lineHeight: 1,
+						textShadow: "0 0 30px rgba(255,255,255,0.2)",
 					}}
 				>
-					<span
-						className="animate-spin rounded-full"
-						style={{
-							width: 56,
-							height: 56,
-							border: "6px solid rgba(255, 255, 255, 0.2)",
-							borderTopColor: "#ffffff",
-						}}
-					/>
-				</div>
-			) : (
-				<div
-					className="flex items-center justify-center rounded-3xl"
-					style={{
-						width: 180,
-						height: 180,
-						background: "rgba(0, 0, 0, 0.85)",
-						backdropFilter: "blur(20px)",
-					}}
-				>
-					<span
-						className="text-white font-bold tabular-nums"
-						style={{
-							fontSize: "100px",
-							lineHeight: 1,
-							textShadow: "0 0 30px rgba(255,255,255,0.2)",
-						}}
-					>
-						{countdown}
-					</span>
-				</div>
-			)}
-			{awaitingScreenPermission ? (
-				<div className="flex flex-col items-center gap-1 text-center">
-					<span className="text-white font-semibold text-lg" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.8)" }}>
-						{t("recording.awaitingScreenPermission", "Waiting for screen permission…")}
-					</span>
-					<span
-						className="text-white/70 text-sm"
-						style={{ textShadow: "0 1px 8px rgba(0,0,0,0.8)" }}
-					>
-						{t("recording.cancelCountdownHint", "Click anywhere or press Esc to cancel")}
-					</span>
-				</div>
-			) : null}
+					{countdown}
+				</span>
+			</div>
 		</div>
 	);
 }
